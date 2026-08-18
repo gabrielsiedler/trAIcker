@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.DS_Store
+
+# Local scratch DBs used by tests / manual runs
+*.db
+*.db-wal
+*.db-shm
+tmp/
+
+# Internal working context, kept on disk but out of the public repo
+CLAUDE.md
+context/
+
+# Accidents
+new_logo.png
+console.log(m.loadConfig().serverPort))

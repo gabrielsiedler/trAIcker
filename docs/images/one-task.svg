@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 234" width="880" height="234" role="img" aria-label="One task: half an hour of human orchestration, two hours of agent execution, and two and a half hours of occupancy billed as one continuous stretch of work.">
+<rect width="880" height="234" rx="12" fill="#0d1117"/>
+<rect x="0.5" y="0.5" width="879" height="233" rx="12" fill="none" stroke="#262d36"/>
+<text x="24.0" y="34" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="start">One task, from the first prompt to something that works</text>
+<text x="856.0" y="34" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#6e7781" text-anchor="end">a database migration, start to finish</text>
+<line x1="156.0" y1="66" x2="156.0" y2="178" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="156.0" y="58" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="start">start</text>
+<line x1="406.0" y1="66" x2="406.0" y2="178" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="406.0" y="58" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="middle">+1 h</text>
+<line x1="656.0" y1="66" x2="656.0" y2="178" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="656.0" y="58" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="middle">+2 h</text>
+<text x="140.0" y="96" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#e6edf3" text-anchor="end">you</text>
+<rect x="156.0" y="84" width="125.0" height="15" rx="3" fill="#58a6ff" opacity="0.9"/>
+<text x="269.0" y="95" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="end">0h30</text>
+<text x="295.0" y="95" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#6e7781" text-anchor="start">planning, prompting, correcting</text>
+<text x="140.0" y="130" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#e6edf3" text-anchor="end">agents</text>
+<rect x="281.0" y="118" width="500.0" height="15" rx="3" fill="#d29922" opacity="0.9"/>
+<text x="293.0" y="129" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#0d1117" text-anchor="start">execution you are answerable for</text>
+<text x="769.0" y="129" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="end">2h00</text>
+<text x="140.0" y="166" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#e6edf3" text-anchor="end">billed</text>
+<rect x="156.0" y="152" width="625.0" height="17" rx="3" fill="#3fb950" opacity="0.9"/>
+<text x="168.0" y="165" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#0d1117" text-anchor="start">occupancy (one continuous stretch of work)</text>
+<text x="769.0" y="165" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="end">2h30</text>
+<line x1="24" y1="190" x2="856" y2="190" stroke="#262d36" stroke-opacity="0.7"/>
+<text x="24" y="212" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#8b949e">The half hour is what made the two hours worth having. Bill the half hour alone, and <tspan fill="#e6edf3" font-weight="700">the better you get at this, the less you earn.</tspan></text>
+</svg>

@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 438" width="880" height="438" role="img" aria-label="A single afternoon across three projects: human focus never overlaps itself, agent runs overlap freely, and occupancy is the union of the two.">
+<rect width="880" height="438" rx="12" fill="#0d1117"/>
+<rect x="0.5" y="0.5" width="879" height="437" rx="12" fill="none" stroke="#262d36"/>
+<text x="24.0" y="34" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e6edf3" text-anchor="start">A single afternoon, three clients, no timer started</text>
+<text x="856.0" y="34" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#6e7781" text-anchor="end">13:00 to 18:00</text>
+<line x1="148.0" y1="74" x2="148.0" y2="360" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="148.0" y="56" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="start">13:00</text>
+<line x1="289.6" y1="74" x2="289.6" y2="360" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="289.6" y="56" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="middle">14:00</text>
+<line x1="431.2" y1="74" x2="431.2" y2="360" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="431.2" y="56" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="middle">15:00</text>
+<line x1="572.8" y1="74" x2="572.8" y2="360" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="572.8" y="56" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="middle">16:00</text>
+<line x1="714.4" y1="74" x2="714.4" y2="360" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="714.4" y="56" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="middle">17:00</text>
+<line x1="856.0" y1="74" x2="856.0" y2="360" stroke="#ffffff" stroke-opacity="0.07"/>
+<text x="856.0" y="56" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" font-weight="400" fill="#6e7781" text-anchor="middle">18:00</text>
+<line x1="148.0" y1="74" x2="148.0" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="176.3" y1="74" x2="176.3" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="207.0" y1="74" x2="207.0" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="225.9" y1="74" x2="225.9" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="242.4" y1="74" x2="242.4" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="261.3" y1="74" x2="261.3" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="289.6" y1="74" x2="289.6" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="317.9" y1="74" x2="317.9" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="348.6" y1="74" x2="348.6" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="372.2" y1="74" x2="372.2" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="407.6" y1="74" x2="407.6" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="426.5" y1="74" x2="426.5" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="454.8" y1="74" x2="454.8" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="490.2" y1="74" x2="490.2" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="584.6" y1="74" x2="584.6" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="608.2" y1="74" x2="608.2" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="631.8" y1="74" x2="631.8" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="655.4" y1="74" x2="655.4" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="690.8" y1="74" x2="690.8" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="726.2" y1="74" x2="726.2" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="756.9" y1="74" x2="756.9" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="785.2" y1="74" x2="785.2" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<line x1="813.5" y1="74" x2="813.5" y2="360" stroke="#ffffff" stroke-opacity="0.05"/>
+<rect x="490.2" y="74" width="94.4" height="286" fill="#ffffff" fill-opacity="0.03" stroke="#8b949e" stroke-opacity="0.3" stroke-dasharray="3 3"/>
+<text x="537.4" y="68" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="400" fill="#6e7781" text-anchor="middle">40 min away, discarded</text>
+<text x="132.0" y="115" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#e6edf3" text-anchor="end">Acme Payments</text>
+<text x="132.0" y="131" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="400" fill="#6e7781" text-anchor="end">3h09 occupancy</text>
+<rect x="147.0" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="175.3" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="241.4" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="316.9" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="425.5" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="453.8" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="630.8" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="689.8" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="725.2" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="812.5" y="88" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="148.0" y="103" width="59.0" height="11" rx="2" fill="#58a6ff"/>
+<rect x="242.4" y="103" width="18.9" height="11" rx="2" fill="#58a6ff"/>
+<rect x="317.9" y="103" width="30.7" height="11" rx="2" fill="#58a6ff"/>
+<rect x="426.5" y="103" width="63.7" height="11" rx="2" fill="#58a6ff"/>
+<rect x="631.8" y="103" width="23.6" height="11" rx="2" fill="#58a6ff"/>
+<rect x="690.8" y="103" width="66.1" height="11" rx="2" fill="#58a6ff"/>
+<rect x="813.5" y="103" width="18.9" height="11" rx="2" fill="#58a6ff"/>
+<rect x="181.0" y="122" width="75.5" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="209.4" y="133" width="61.4" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="431.2" y="122" width="70.8" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="459.5" y="133" width="94.4" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="714.4" y="122" width="75.5" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="148.0" y="150" width="122.7" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="317.9" y="150" width="30.7" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="426.5" y="150" width="127.4" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="631.8" y="150" width="23.6" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="690.8" y="150" width="99.1" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="789.9" y="150" width="23.6" height="11" rx="2" fill="#3fb950" opacity="0.28"/>
+<rect x="813.5" y="150" width="18.9" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<line x1="24.0" y1="172" x2="856.0" y2="172" stroke="#262d36" stroke-opacity="0.7"/>
+<text x="132.0" y="211" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#e6edf3" text-anchor="end">Northwind CRM</text>
+<text x="132.0" y="227" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="400" fill="#6e7781" text-anchor="end">2h38 occupancy</text>
+<rect x="206.0" y="184" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="224.9" y="184" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="347.6" y="184" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="371.2" y="184" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="489.2" y="184" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="654.4" y="184" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="755.9" y="184" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="207.0" y="199" width="35.4" height="11" rx="2" fill="#58a6ff"/>
+<rect x="348.6" y="199" width="59.0" height="11" rx="2" fill="#58a6ff"/>
+<rect x="655.4" y="199" width="35.4" height="11" rx="2" fill="#58a6ff"/>
+<rect x="756.9" y="199" width="28.3" height="11" rx="2" fill="#58a6ff"/>
+<rect x="230.6" y="218" width="94.4" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="355.7" y="218" width="94.4" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="384.0" y="229" width="42.5" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="667.2" y="218" width="75.5" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="207.0" y="246" width="118.0" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="325.0" y="246" width="23.6" height="11" rx="2" fill="#3fb950" opacity="0.28"/>
+<rect x="348.6" y="246" width="101.5" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="655.4" y="246" width="87.3" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="742.7" y="246" width="14.2" height="11" rx="2" fill="#3fb950" opacity="0.28"/>
+<rect x="756.9" y="246" width="28.3" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<line x1="24.0" y1="268" x2="856.0" y2="268" stroke="#262d36" stroke-opacity="0.7"/>
+<text x="132.0" y="307" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#e6edf3" text-anchor="end">Helio</text>
+<text x="132.0" y="323" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="400" fill="#6e7781" text-anchor="end">1h53 occupancy</text>
+<rect x="260.3" y="280" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="288.6" y="280" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="406.6" y="280" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="583.6" y="280" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="607.2" y="280" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="784.2" y="280" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<rect x="261.3" y="295" width="56.6" height="11" rx="2" fill="#58a6ff"/>
+<rect x="407.6" y="295" width="18.9" height="11" rx="2" fill="#58a6ff"/>
+<rect x="584.6" y="295" width="47.2" height="11" rx="2" fill="#58a6ff"/>
+<rect x="785.2" y="295" width="28.3" height="11" rx="2" fill="#58a6ff"/>
+<rect x="270.7" y="314" width="94.4" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="294.3" y="325" width="42.5" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="596.4" y="314" width="75.5" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="794.6" y="314" width="47.2" height="8" rx="2" fill="#d29922" opacity="0.9"/>
+<rect x="261.3" y="342" width="103.8" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="407.6" y="342" width="18.9" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="584.6" y="342" width="87.3" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="785.2" y="342" width="56.6" height="11" rx="2" fill="#3fb950" opacity="0.85"/>
+<rect x="24.0" y="383" width="10.0" height="10" rx="2" fill="#58a6ff"/>
+<text x="40.0" y="392" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#8b949e" text-anchor="start">focus (you, one project at a time)</text>
+<rect x="227.9" y="383" width="10.0" height="10" rx="2" fill="#d29922"/>
+<text x="243.9" y="392" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#8b949e" text-anchor="start">agent runs (parallel, they overlap freely)</text>
+<rect x="474.6" y="383" width="10.0" height="10" rx="2" fill="#3fb950"/>
+<text x="490.6" y="392" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#8b949e" text-anchor="start">occupancy (the union, and the billable line)</text>
+<rect x="735.0" y="382" width="2.0" height="11" rx="1" fill="#58a6ff" opacity="0.85"/>
+<text x="748.0" y="392" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#8b949e" text-anchor="start">a prompt</text>
+<text x="24.0" y="420" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#e6edf3" text-anchor="start">Focus 4h10   ·   Agent 5h26 wall-clock, 6h40 of effort   ·   Occupancy 7h40, in an afternoon five hours long.</text>
+</svg>

@@ -1,0 +1,45 @@
+# Packaging for the desktop shell. The web build and the CLI are unaffected —
+# this only wraps what `npm run build` already produced.
+appId: dev.traicker.app
+productName: trAIcker
+copyright: Gabriel Siedler
+
+directories:
+  output: release
+
+files:
+  - dist/**
+  - public/**
+  - package.json
+
+# better-sqlite3 loads a real .node binary, and a native module cannot be
+# dlopen'd from inside an asar archive. Unpacking it is what keeps the packaged
+# app from dying on its first query — a failure that never shows up in `npm run
+# desktop`, since that runs unpacked.
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+
+# Left at the default (true) on purpose: it rebuilds better-sqlite3 against
+# Electron's ABI. The prebuilds shipped in the package are keyed to Node's
+# (modules=127 on Node 22) and Electron's differs, so skipping this produces a
+# bundle that fails to open the database.
+npmRebuild: true
+
+win:
+  target: nsis
+  icon: public/logo.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  icon: public/logo.png
+
+linux:
+  target: AppImage
+  category: Utility
+  icon: public/logo.png

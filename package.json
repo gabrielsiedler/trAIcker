@@ -1,0 +1,53 @@
+{
+  "name": "traicker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Passive time tracking for AI-agent orchestration workflows",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "dist/desktop/main.js",
+  "bin": {
+    "traicker": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.json",
+    "build:web": "vite build",
+    "dev": "vite",
+    "dev:server": "tsx watch src/server/serve.ts",
+    "serve": "node dist/server/serve.js",
+    "desktop": "npm run build && electron .",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
+    "desktop:pack": "npm run build && electron-builder --dir",
+    "desktop:dist": "npm run build && electron-builder",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cli": "tsx src/cli/index.ts",
+    "install-hooks": "tsx src/cli/index.ts install-hooks"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1",
+    "openai": "^7.4.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  }
+}

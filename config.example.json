@@ -1,0 +1,96 @@
+{
+  "_comment": "Copy to ~/.traicker/config.json. Every key is optional.",
+
+  "idleTimeoutMinutes": 15,
+  "_idleTimeoutMinutes": "A focus interval runs at most this long. Beyond it you were away, not orchestrating.",
+
+  "idleAttributionCapMinutes": 120,
+  "_idleAttributionCapMinutes": "Ceiling on how much of ONE gap is reported as idle. An overnight gap is off the clock, not idle — without this the number is dominated by hours nobody was going to work.",
+
+  "stitchGapMinutes": 10,
+  "_stitchGapMinutes": "Gaps this short are absorbed into a billable block. The pause between an agent finishing and your next prompt is you reading the output, not a stop in the work.",
+
+  "maxTurnMinutes": 120,
+  "maxSubagentMinutes": 120,
+  "_maxSpans": "Ceilings for spans that never closed — a crash, a hard kill, a session still running.",
+
+  "promptExcerptChars": 80,
+  "_promptExcerptChars": "Fallback label length when Claude Code has not generated a session title yet. Set to 0 to never store prompt text at all.",
+
+  "spoolRetentionDays": 7,
+  "spoolRetentionAction": "archive",
+
+  "serverPort": 4317,
+
+  "translationModel": "deepseek/deepseek-v4-flash-0731",
+  "_translationModel": "Model that writes and translates timesheet descriptions. An OpenRouter slug — provider-prefixed, and it must support structured outputs (openrouter.ai/models?supported_parameters=structured_outputs). Both jobs are light and the default is priced accordingly; 'anthropic/claude-opus-5' costs roughly 60x more per call, which is a decision about your money rather than one made for you. Credentials come from OPENROUTER_API_KEY.",
+
+  "llmBaseUrl": "https://openrouter.ai/api/v1",
+  "_llmBaseUrl": "OpenAI-compatible endpoint the model calls go to. A setting because the endpoint and the key travel together — pointing this elsewhere without also changing OPENROUTER_API_KEY sends your key to a host that did not issue it.",
+
+
+  "modelPricing": {
+    "claude-opus-5": [
+      { "effectiveFrom": "2026-01-01", "inputPerMillion": 15, "outputPerMillion": 75, "cacheWritePerMillion": 18.75, "cacheReadPerMillion": 1.5 },
+      { "effectiveFrom": "2026-06-01", "inputPerMillion": 12, "outputPerMillion": 60, "cacheWritePerMillion": 15, "cacheReadPerMillion": 1.2 }
+    ]
+  },
+  "_modelPricing": "Illustrative example only — check your provider's current published rates before trusting these numbers. Keyed by the exact model name Claude Code itself reports (visible on the dashboard's Models tab). Each model is a LIST of rates, one per effectiveFrom date: a day's usage is priced with the most recent entry at or before that day, so a rate change never rewrites the cost of a month already worked. A single entry with an old effectiveFrom is enough if the rate has never changed. Feeds an internal cost ESTIMATE only, never shown to a client. cacheWritePerMillion/cacheReadPerMillion are optional; omitted, those tokens count as $0 toward the estimate rather than guessing a rate.",
+
+
+  "ignorePaths": ["C:/dev"],
+  "_ignorePaths": "Matches a path and everything under it. A DECLARED project always wins over an ignore prefix, and so does anything inside a declared WORKSPACE (a declared path that contains other declared paths) — ignoring the workspace directory is how you stop bare sessions started in it from becoming a project, without deleting the projects that live inside it. To drop a whole tree, ignore a path you have not declared.",
+
+
+  "_projects": "A directory you work in becomes a project the first time an event arrives from it — nothing here is required. What this block adds is everything the filesystem cannot know: the client's name, and whether the time is billable.",
+
+  "projects": {
+    "C:/dev/acme-payments": {
+      "name": "Acme Payments",
+      "client": "Acme",
+
+      "billable": true,
+      "color": "#3fb950",
+      "_color": "Hex colour used for this project everywhere it is drawn. Omit to derive one from the project id — that derived hue is a function of insertion order, so adding a project can recolour one you had already learned to recognise. Editable in the dashboard's Settings tab.",
+      "_billable": "Defaults to FALSE for any project not listed here. Most directories you open are your own; billing is the exception, and the two mistakes cost differently — an unmarked client is a project visibly missing from a total, while an unmarked personal project quietly inflates a figure the client reads.",
+
+      "commitment": {
+        "weeklyHours": 10,
+        "kind": "cap",
+        "_kind": "'cap' is a ceiling, breached from above and flagged immediately. 'target' is a commitment, breached from below and only judged at week end. Opposite obligations — they deliberately do not share a field.",
+        "weekStartsOn": "monday"
+      },
+
+      "billing": {
+        "_note": "Presence of this block is what makes a project appear in the dashboard's timesheet panel.",
+        "basis": "occupancy",
+        "_basis": "'occupancy' bills the wall-clock the project was worked on, by you or by an agent you directed. 'focus' bills only your attention — far smaller, and right only if the client is buying presence rather than delivery.",
+        "roundToMinutes": 15,
+        "weekStartsOn": "monday",
+        "allowExcerpts": false,
+        "_allowExcerpts": "When Claude Code produced no title for a session, allow a raw slice of your prompt as the description. Off by default — an excerpt is unedited text you typed to an agent, often in the wrong language for the client.",
+
+        "translateTo": "English",
+        "_translateTo": "Translate descriptions into this language before the client sees them. Cached per source string, so the same week always reads identically; fill the cache with `traicker translate --project X`. Omit to leave labels in the language the work happened in. Your own `traicker note` always wins over a translation."
+      }
+    },
+
+    "C:/dev/northwind-crm": {
+      "name": "Northwind CRM",
+      "client": "Northwind",
+      "billable": true,
+      "_note": "A commitment without a billing block: weekly hours you track for yourself, with no timesheet to submit.",
+      "commitment": {
+        "weeklyHours": 20,
+        "kind": "target",
+        "weekStartsOn": "monday"
+      }
+    },
+
+    "C:/dev/traicker": {
+      "name": "trAIcker",
+      "client": "Internal",
+      "billable": false
+    }
+  }
+}

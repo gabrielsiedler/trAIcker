@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trAIcker — you are not paid for the half hour you spent typing</title>
+<meta name="description" content="Passive time tracking for people who orchestrate AI agents across several projects at once. No timers, no start/stop, nothing to remember.">
+<link rel="icon" href="images/logo.png">
+<meta property="og:title" content="trAIcker">
+<meta property="og:description" content="Passive time tracking for people who orchestrate AI agents across several projects at once.">
+<meta property="og:image" content="images/three-metrics.svg">
+<meta name="theme-color" content="#0d1117">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#0d1117;
+  --bg-2:#0f151c;
+  --panel:#151b23;
+  --line:#232b35;
+  --line-soft:#1b222b;
+  --ink:#e9eff5;
+  --muted:#9aa6b2;
+  --dim:#6b7683;
+  --blue:#58a6ff;
+  --amber:#d29922;
+  --green:#3fb950;
+  --serif:"Instrument Serif",ui-serif,Georgia,serif;
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --wide:1180px;
+  --prose:660px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);font-size:17px;line-height:1.65;
+  font-feature-settings:"kern","liga";
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+/* atmosphere: one warm light source, top right, plus a fine grain */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(1000px 520px at 78% -12%, rgba(210,153,34,.13), transparent 62%),
+    radial-gradient(760px 460px at 8% 4%, rgba(88,166,255,.07), transparent 60%);
+}
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+main,header,footer{position:relative;z-index:2}
+
+a{color:var(--amber);text-decoration:none;text-underline-offset:3px}
+a:hover{text-decoration:underline}
+::selection{background:rgba(210,153,34,.28)}
+
+.wrap{max-width:var(--wide);margin:0 auto;padding:0 28px}
+.prose{max-width:var(--prose)}
+
+/* ---------- the ruler motif: the axis of the diagrams, as page furniture ---------- */
+.ruler{
+  height:13px;
+  background:
+    repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 13px);
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);
+          mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);
+}
+.ruler.tall{
+  height:22px;
+  background:
+    repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 13px),
+    repeating-linear-gradient(90deg,var(--dim) 0 1px,transparent 1px 104px);
+}
+
+/* ---------- nav ---------- */
+.nav{
+  display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:20px 0 18px;
+}
+.brand{display:flex;align-items:center;gap:11px;color:var(--ink)}
+.brand:hover{text-decoration:none}
+.brand img{width:34px;height:34px;border-radius:8px;display:block}
+.brand b{
+  font-family:var(--mono);font-weight:600;font-size:16px;letter-spacing:-.02em;
+}
+.brand b i{font-style:normal;color:var(--amber)}
+.navlinks{display:flex;gap:22px;font-family:var(--mono);font-size:13.5px}
+.navlinks a{color:var(--muted)}
+.navlinks a:hover{color:var(--ink);text-decoration:none}
+
+/* ---------- hero ---------- */
+.hero{padding:64px 0 40px}
+.eyebrow{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);display:flex;align-items:center;gap:12px;margin-bottom:26px;
+}
+.eyebrow::after{content:"";flex:1;height:1px;background:var(--line)}
+h1{
+  font-family:var(--serif);font-weight:400;
+  font-size:clamp(38px,6.4vw,78px);line-height:1.02;letter-spacing:-.015em;
+  margin:0 0 26px;max-width:16ch;
+}
+h1 em{font-style:italic;color:var(--amber)}
+.lede{font-size:clamp(17px,2vw,20px);color:var(--muted);max-width:56ch;margin:0 0 34px}
+.lede b{color:var(--ink);font-weight:500}
+.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{
+  font-family:var(--mono);font-size:14px;font-weight:500;
+  padding:11px 18px;border-radius:8px;border:1px solid var(--line);
+  color:var(--ink);background:var(--panel);transition:.18s ease;
+}
+.btn:hover{text-decoration:none;border-color:var(--dim);transform:translateY(-1px)}
+.btn.primary{background:var(--amber);color:#1a1205;border-color:transparent;font-weight:600}
+.btn.primary:hover{background:#e5aa2c}
+.cta small{font-family:var(--mono);font-size:12.5px;color:var(--dim);margin-left:6px}
+
+/* the hero ledger: the argument as a line on a statement */
+.hero .wrap{display:grid;grid-template-columns:1fr;gap:52px;align-items:center}
+@media (min-width:1040px){
+  .hero .wrap{grid-template-columns:minmax(0,1.12fr) minmax(330px,.88fr);gap:60px}
+  .hero{padding:56px 0 64px}
+}
+.ledger{
+  border:1px solid var(--line);border-radius:14px;background:var(--bg-2);
+  padding:22px 24px 20px;font-family:var(--mono);font-variant-numeric:tabular-nums;
+  box-shadow:0 30px 60px -30px rgba(0,0,0,.8);
+}
+.ledger .top{
+  display:flex;justify-content:space-between;font-size:11.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim);padding-bottom:14px;border-bottom:1px solid var(--line);
+}
+.ledger .line{
+  display:flex;justify-content:space-between;align-items:baseline;gap:16px;
+  padding:13px 0;border-bottom:1px solid var(--line-soft);font-size:14px;color:var(--muted);
+}
+.ledger .line .v{color:var(--ink);font-weight:500;font-size:16px}
+.ledger .line .v small{color:var(--dim);font-weight:400;font-size:11.5px;margin-left:8px}
+.ledger .line.k{border-bottom:none;padding-top:16px}
+.ledger .line.k .l{color:var(--green)}
+.ledger .line.k .v{color:var(--green);font-size:27px;font-weight:600;letter-spacing:-.02em}
+.ledger .dot{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:9px;vertical-align:1px}
+.ledger .dot.b{background:var(--blue)} .ledger .dot.a{background:var(--amber)} .ledger .dot.g{background:var(--green)}
+.ledger .note{font-size:11.5px;color:var(--dim);line-height:1.6;margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line)}
+
+/* ---------- sections ---------- */
+section{padding:72px 0}
+.kicker{
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);margin:0 0 18px;
+}
+h2{
+  font-family:var(--serif);font-weight:400;
+  font-size:clamp(28px,3.9vw,46px);line-height:1.1;letter-spacing:-.01em;
+  margin:0 0 22px;max-width:20ch;
+}
+h3{font-family:var(--sans);font-size:17px;font-weight:600;margin:0 0 8px;letter-spacing:-.01em}
+p{margin:0 0 20px}
+.prose p{color:var(--muted)}
+.prose p strong{color:var(--ink);font-weight:600}
+.prose p em{color:var(--ink);font-style:italic}
+
+/* ---------- figures ---------- */
+figure{margin:38px 0 0}
+.figscroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+.figscroll img{display:block;width:100%;min-width:660px;height:auto}
+figcaption{
+  font-family:var(--mono);font-size:12.5px;color:var(--dim);
+  margin-top:12px;line-height:1.6;
+}
+
+/* ---------- pull quote ---------- */
+.quote{padding:8px 0 84px}
+.quote .inner{
+  border-left:2px solid var(--amber);padding:6px 0 6px 30px;max-width:900px;
+}
+.quote q{
+  font-family:var(--serif);font-size:clamp(30px,4.6vw,54px);line-height:1.08;
+  letter-spacing:-.015em;quotes:none;display:block;margin-bottom:18px;
+}
+.quote p{color:var(--muted);max-width:60ch;margin:0}
+
+/* ---------- the counter (the interactive bit) ---------- */
+.counter{
+  border:1px solid var(--line);border-radius:14px;background:var(--bg-2);
+  padding:24px;margin-top:38px;
+}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.tab{
+  font-family:var(--mono);font-size:13px;font-weight:500;
+  padding:8px 14px;border-radius:999px;border:1px solid var(--line);
+  background:transparent;color:var(--muted);cursor:pointer;transition:.16s ease;
+}
+.tab:hover{color:var(--ink);border-color:var(--dim)}
+.tab[aria-selected="true"]{color:#12171d;font-weight:600;border-color:transparent}
+.tab[data-layer="focus"][aria-selected="true"]{background:var(--blue)}
+.tab[data-layer="agent"][aria-selected="true"]{background:var(--amber)}
+.tab[data-layer="occ"][aria-selected="true"]{background:var(--green)}
+
+.readout{
+  display:flex;align-items:baseline;flex-wrap:wrap;gap:0 16px;
+  padding:22px 0 20px;border-bottom:1px solid var(--line-soft);
+}
+.readout .num{
+  font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
+  font-size:clamp(40px,6vw,62px);line-height:1;letter-spacing:-.03em;
+  transition:color .28s ease;
+}
+.readout .say{color:var(--muted);font-size:15px;max-width:46ch}
+[data-active="focus"] .readout .num{color:var(--blue)}
+[data-active="agent"] .readout .num{color:var(--amber)}
+[data-active="occ"]   .readout .num{color:var(--green)}
+
+.axis{
+  display:flex;justify-content:space-between;
+  font-family:var(--mono);font-size:11.5px;color:var(--dim);
+  padding:14px 0 6px;margin-left:112px;
+}
+.row{display:flex;align-items:center;gap:0;padding:7px 0}
+.row .name{
+  width:112px;flex:none;padding-right:14px;text-align:right;
+  font-family:var(--mono);font-size:12px;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.track{
+  position:relative;flex:1;height:34px;border-radius:5px;
+  background:linear-gradient(90deg,rgba(255,255,255,.022),rgba(255,255,255,.022));
+  background-image:repeating-linear-gradient(90deg,var(--line-soft) 0 1px,transparent 1px 20%);
+}
+.bar{
+  position:absolute;height:9px;border-radius:3px;top:50%;transform:translateY(-50%);
+  transition:opacity .3s ease, filter .3s ease;
+}
+.bar.focus{background:var(--blue)}
+.bar.agent{background:var(--amber)}
+.bar.occ{background:var(--green)}
+/* stacked when nothing is selected is never the case: one layer always leads */
+[data-active="focus"] .bar.focus,[data-active="agent"] .bar.agent,[data-active="occ"] .bar.occ{opacity:1}
+[data-active] .bar{opacity:.1}
+[data-active="focus"] .bar.focus{top:50%}
+[data-active="agent"] .bar.agent{opacity:1}
+[data-active="occ"] .bar.occ{opacity:1;height:11px}
+.counter .foot{
+  font-family:var(--mono);font-size:12px;color:var(--dim);
+  margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft);
+}
+
+/* ---------- Q & A ---------- */
+.qa{border-top:1px solid var(--line);margin-top:14px}
+.qa .item{
+  display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:28px;
+  padding:30px 0;border-bottom:1px solid var(--line);
+}
+.qa .q{
+  font-family:var(--serif);font-size:clamp(21px,2.5vw,28px);line-height:1.15;
+  color:var(--ink);margin:0;
+}
+.qa .a{color:var(--muted);margin:0}
+.qa .a strong{color:var(--ink);font-weight:600}
+.qa .a code{
+  font-family:var(--mono);font-size:.9em;color:var(--green);
+  background:rgba(63,185,80,.09);padding:2px 6px;border-radius:4px;
+}
+
+/* ---------- three cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;margin-top:36px}
+.card{
+  border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  padding:22px;position:relative;overflow:hidden;transition:.2s ease;
+}
+.card:hover{border-color:var(--dim);transform:translateY(-2px)}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--line)}
+.card.b::before{background:var(--blue)}
+.card.a::before{background:var(--amber)}
+.card.g::before{background:var(--green)}
+.card .tagn{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--dim);display:block;margin-bottom:10px;
+}
+.card p{color:var(--muted);font-size:15.5px;margin:0}
+.card p + p{margin-top:12px}
+.card code{font-family:var(--mono);font-size:.88em;color:var(--ink)}
+
+/* ---------- surfaces ---------- */
+.surfaces .card p:first-of-type{color:var(--ink)}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:46px 0 60px;margin-top:40px}
+.foot-grid{display:flex;flex-wrap:wrap;gap:32px;justify-content:space-between;align-items:flex-start}
+footer .links{display:flex;flex-wrap:wrap;gap:20px;font-family:var(--mono);font-size:13.5px}
+footer .links a{color:var(--muted)}
+footer .links a:hover{color:var(--ink);text-decoration:none}
+footer .fine{font-family:var(--mono);font-size:12px;color:var(--dim);margin:18px 0 0}
+
+/* ---------- reveal ---------- */
+.rv{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+.rv.in{opacity:1;transform:none}
+
+@media (max-width:820px){
+  .navlinks a:not(.gh){display:none}
+  .navlinks{gap:0}
+}
+@media (max-width:760px){
+  body{font-size:16px}
+  section{padding:56px 0}
+  .qa .item{grid-template-columns:1fr;gap:12px}
+  .axis,.row .name{display:none}
+  .counter{padding:18px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .rv{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="nav">
+    <a class="brand" href="./"><img src="images/logo.png" alt=""><b>tr<i>AI</i>cker</b></a>
+    <div class="navlinks">
+      <a href="#count">The three numbers</a>
+      <a href="#questions">Questions</a>
+      <a href="https://github.com/gabrielsiedler/trAIcker/blob/main/docs/why.md">Docs</a>
+      <a class="gh" href="https://github.com/gabrielsiedler/trAIcker">GitHub</a>
+    </div>
+  </nav>
+</div>
+<div class="wrap"><div class="ruler tall"></div></div>
+
+<header class="hero">
+  <div class="wrap">
+   <div>
+    <p class="eyebrow">Passive time tracking for agent orchestration</p>
+    <h1>You are not paid for the half hour you spent <em>typing</em>.</h1>
+    <p class="lede">You are paid for the two hours of work that half hour was responsible
+      for, and for those two hours being right when they land. <b>trAIcker measures that,
+      with no timer to start and none to forget.</b></p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/gabrielsiedler/trAIcker">View on GitHub</a>
+      <a class="btn" href="#count">See how it counts</a>
+      <small>CLI · web dashboard · desktop app</small>
+    </div>
+   </div>
+
+   <aside class="ledger" aria-label="One afternoon, as trAIcker counts it">
+     <div class="top"><span>One afternoon</span><span>13:00 to 18:00</span></div>
+     <div class="line"><span class="l"><i class="dot b"></i>focus</span>
+       <span class="v">4h10</span></div>
+     <div class="line"><span class="l"><i class="dot a"></i>agent</span>
+       <span class="v">5h26<small>6h40 of effort</small></span></div>
+     <div class="line k"><span class="l"><i class="dot g"></i>occupancy</span>
+       <span class="v">7h40</span></div>
+     <p class="note">Three clients, thirteen agent runs, not one timer started.
+       Occupancy is what gets invoiced.</p>
+   </aside>
+</header>
+
+<main>
+
+<section id="argument">
+  <div class="wrap">
+    <div class="prose">
+      <p class="kicker">The task, measured</p>
+      <h2>Half an hour of yours. Two hours of theirs.</h2>
+      <p>A developer is hired to guarantee quality, reliability and delivery. That did not
+        change when agents started writing the code. What changed is that the scarce skill
+        moved from writing it to directing it well.</p>
+    </div>
+
+    <figure>
+      <div class="figscroll">
+        <img src="images/one-task.svg" width="880" height="234"
+             alt="One task: half an hour of orchestration, two hours of execution, two and a half hours of occupancy.">
+      </div>
+      <figcaption>A database migration, start to finish. A tracker built around one active
+        task records the half hour and stops there.</figcaption>
+    </figure>
+
+    <div class="prose" style="margin-top:38px">
+      <p>The half hour is not the work made smaller, it is the work made <em>denser</em>.
+        Give the same two hours of execution to someone who can't write that half hour, and
+        the client gets two hours of confident nonsense, delivered on time.</p>
+    </div>
+  </div>
+</section>
+
+<section class="quote">
+  <div class="wrap">
+    <div class="inner">
+      <q>The better you get at this, the less you earn.</q>
+      <p>That is what billing your own keystrokes gets you. Every improvement in how you
+        brief and correct an agent makes the interval a normal tracker measures shorter.</p>
+    </div>
+  </div>
+</section>
+
+<div class="wrap"><div class="ruler"></div></div>
+
+<section id="count">
+  <div class="wrap">
+    <div class="prose">
+      <p class="kicker">The same afternoon, counted three ways</p>
+      <h2>Three numbers, kept apart on purpose.</h2>
+      <p>One Tuesday afternoon, three clients, thirteen agent runs, and not one timer
+        started. Switch the layer and watch the total move.</p>
+    </div>
+
+    <div class="counter" id="counter" data-active="occ">
+      <div class="tabs" role="tablist" aria-label="Which layer to count">
+        <button class="tab" role="tab" data-layer="focus" aria-selected="false">Focus</button>
+        <button class="tab" role="tab" data-layer="agent" aria-selected="false">Agent</button>
+        <button class="tab" role="tab" data-layer="occ" aria-selected="true">Occupancy</button>
+      </div>
+
+      <div class="readout">
+        <span class="num" id="num">7h40</span>
+        <span class="say" id="say">How long these three projects were being worked on, by
+          you or by an agent you sent. This is the number you invoice.</span>
+      </div>
+
+      <div class="axis"><span>13:00</span><span>14:00</span><span>15:00</span><span>16:00</span><span>17:00</span><span>18:00</span></div>
+      <div id="rows"></div>
+
+      <p class="foot" id="foot">Occupancy overlaps across projects, so it adds up to more
+        than the afternoon is long. That is a real property of the working model.</p>
+    </div>
+
+    <figure>
+      <div class="figscroll">
+        <img src="images/three-metrics.svg" width="880" height="442"
+             alt="One afternoon across three projects. Human focus never overlaps itself, agent runs overlap freely, and occupancy is the union of the two.">
+      </div>
+      <figcaption>The same afternoon with every layer at once. Focus never overlaps itself,
+        because a prompt on one project is what ends focus on the last one. The dashed
+        40 minutes are time away from the desk, dropped instead of counted.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="questions">
+  <div class="wrap">
+    <div class="prose">
+      <p class="kicker">The part a client asks about</p>
+      <h2>Occupancy is the number you invoice.</h2>
+      <p>It raises the same three questions every time, so here they are with the answers
+        written down.</p>
+    </div>
+
+    <div class="qa">
+      <div class="item">
+        <p class="q">"If you get faster, do I pay less?"</p>
+        <p class="a">For the same piece of work, yes. What moves is the rate. An hour that
+          now carries two hours of directed execution is not the hour you sold two years
+          ago, and pricing it the same is the real mistake. Time is the unit, the rate is
+          where skill gets paid.</p>
+      </div>
+      <div class="item">
+        <p class="q">"Isn't billing two projects for the same hour charging twice?"</p>
+        <p class="a">It would be, if an hour of occupancy meant you were only on that
+          project. It doesn't, and <strong>it must never be sold that way</strong>. Two
+          clients each got an hour of engineering. Neither was promised that nobody else
+          did.</p>
+      </div>
+      <div class="item">
+        <p class="q">"Do you have to be watching for it to count?"</p>
+        <p class="a">No. You picked the approach, you sent the run, and your name is on
+          what lands. A client who buys presence instead of delivery is buying something
+          different, and that's legitimate: put their <code>billing.basis</code> on
+          <code>focus</code> and the same log answers their question.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="against">
+  <div class="wrap">
+    <div class="prose">
+      <p class="kicker">What it refuses to measure</p>
+      <h2>Everything else counts the thing that just got cheap.</h2>
+    </div>
+    <div class="cards">
+      <div class="card b">
+        <span class="tagn">The manual timer</span>
+        <p>It needs a decision at the moment of the switch, which is exactly when you have
+          no attention to spare. Hours you forget to start are gone. A timer you forget to
+          stop bills a client for your dinner, and looks as solid as a true number.</p>
+      </div>
+      <div class="card a">
+        <span class="tagn">Commits, PRs, lines</span>
+        <p>Output volume became the easiest signal to fake the moment agents started writing
+          the code. A diff of four thousand lines now costs one prompt and no thought.</p>
+        <p>It also says nothing about the hour you spent deciding a feature should not be
+          built, which was the most valuable hour of the week.</p>
+      </div>
+      <div class="card g">
+        <span class="tagn">IDE activity trackers</span>
+        <p>They measure keystrokes and the window in focus, and that input collapses when
+          the work goes well. An agent working for forty minutes shows up as forty idle
+          minutes, because nobody touched the keyboard.</p>
+      </div>
+    </div>
+    <p class="foot" style="font-family:var(--mono);font-size:12.5px;color:var(--dim);margin-top:22px">
+      The long version of all three is in
+      <a href="https://github.com/gabrielsiedler/trAIcker/blob/main/docs/why.md">docs/why.md</a>.
+    </p>
+  </div>
+</section>
+
+<div class="wrap"><div class="ruler"></div></div>
+
+<section id="how">
+  <div class="wrap">
+    <div class="prose">
+      <p class="kicker">How it captures any of this</p>
+      <h2>Claude Code hooks, and a file on your own disk.</h2>
+      <p>Prompting an agent is the act of clocking in. The hook appends a ~200 byte line
+        and exits, so nothing on the path can block your prompt, and nothing polls your
+        machine. No raw prompt text is ever stored.</p>
+    </div>
+    <figure>
+      <div class="figscroll">
+        <img src="images/pipeline.svg" width="880" height="226"
+             alt="The pipeline: a Claude Code hook appends to an NDJSON spool, ingestion writes an append-only SQLite event log, spans are derived from it, and reports are read from the spans.">
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section id="surfaces" class="surfaces">
+  <div class="wrap">
+    <div class="prose">
+      <p class="kicker">Three ways to read it</p>
+      <h2>One SQLite file, three front ends.</h2>
+    </div>
+    <div class="cards">
+      <div class="card b">
+        <span class="tagn">CLI</span>
+        <p>The fast path, and the only one that scripts.</p>
+        <p><code>traicker report --week</code>, <code>traicker timesheet --project acme
+          --csv</code>, <code>traicker week</code>.</p>
+      </div>
+      <div class="card a">
+        <span class="tagn">Web dashboard</span>
+        <p>The timeline, the timesheet panel, project settings.</p>
+        <p>Runs locally. Copy buttons on every timesheet row, because the client's form is
+          already open in another tab.</p>
+      </div>
+      <div class="card g">
+        <span class="tagn">Desktop app</span>
+        <p>The same dashboard in an Electron window, with a tray icon.</p>
+        <p>The server is embedded in it, so there is nothing to start after a reboot. The
+          CLI keeps working against the same database at the same time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:20px">
+  <div class="wrap">
+    <div class="prose">
+      <h2>It is open source, and it runs on your machine.</h2>
+      <p>No account, no cloud, no telemetry. The database is a SQLite file in your home
+        directory, and the only thing that ever leaves it is a timesheet sentence, when you
+        explicitly ask a model to write one.</p>
+      <div class="cta" style="margin-top:28px">
+        <a class="btn primary" href="https://github.com/gabrielsiedler/trAIcker">View on GitHub</a>
+        <a class="btn" href="https://github.com/gabrielsiedler/trAIcker/blob/main/README.md">Read the README</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <a class="brand" href="./"><img src="images/logo.png" alt=""><b>tr<i>AI</i>cker</b></a>
+      <div class="links">
+        <a href="https://github.com/gabrielsiedler/trAIcker/blob/main/docs/why.md">Why this way</a>
+        <a href="https://github.com/gabrielsiedler/trAIcker/blob/main/docs/measurement.md">What gets measured</a>
+        <a href="https://github.com/gabrielsiedler/trAIcker/blob/main/docs/billing.md">Billing</a>
+        <a href="https://github.com/gabrielsiedler/trAIcker/blob/main/docs/dashboard.md">Dashboard</a>
+        <a href="https://github.com/gabrielsiedler/trAIcker/blob/main/docs/architecture.md">Architecture</a>
+      </div>
+    </div>
+    <p class="fine">Built by Gabriel Siedler. The numbers on this page come from one
+      synthetic afternoon, run through the same rules the tool uses.</p>
+  </div>
+</footer>
+
+<script>
+/* The afternoon, in minutes after 13:00. Same intervals the SVGs are generated from. */
+const SPAN = 300;
+const DATA = [
+  { name: "Acme Payments",
+    focus: [[0,25],[40,48],[72,85],[118,145],[205,215],[230,258],[282,290]],
+    agent: [[14,46],[26,52],[120,150],[132,172],[240,272]],
+    occ:   [[0,52],[72,85],[118,172],[205,215],[230,290]] },
+  { name: "Northwind CRM",
+    focus: [[25,40],[85,110],[215,230],[258,270]],
+    agent: [[35,75],[88,128],[100,118],[220,252]],
+    occ:   [[25,128],[215,270]] },
+  { name: "Helio",
+    focus: [[48,72],[110,118],[185,205],[270,282]],
+    agent: [[52,92],[62,80],[190,222],[274,294]],
+    occ:   [[48,92],[110,118],[185,222],[270,294]] },
+];
+const COPY = {
+  focus: { n:"4h10", say:"Your orchestration time, and only one project can hold it at a time. This is what a manual timer would show, if you never once forgot to start it.",
+           foot:"A gap longer than the idle timeout is dropped instead of counted. Forty minutes away from the desk are billed to nobody." },
+  agent: { n:"5h26", say:"Elapsed time with an agent running, out of 6h40 of actual agent work. This is the part an activity tracker files under idle.",
+           foot:"Agent runs overlap freely, because they do not compete for your attention. Wall-clock is the union, effort is the sum." },
+  occ:   { n:"7h40", say:"How long these three projects were being worked on, by you or by an agent you sent. This is the number you invoice.",
+           foot:"Occupancy overlaps across projects, so it adds up to more than the afternoon is long. That is a real property of the working model." },
+};
+
+const rows = document.getElementById("rows");
+for (const p of DATA) {
+  const row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML = '<div class="name">' + p.name + '</div>';
+  const track = document.createElement("div");
+  track.className = "track";
+  for (const layer of ["focus","agent","occ"]) {
+    for (const [a,b] of p[layer]) {
+      const bar = document.createElement("div");
+      bar.className = "bar " + layer;
+      bar.style.left  = (a / SPAN * 100) + "%";
+      bar.style.width = Math.max((b - a) / SPAN * 100, .5) + "%";
+      track.appendChild(bar);
+    }
+  }
+  row.appendChild(track);
+  rows.appendChild(row);
+}
+
+const counter = document.getElementById("counter");
+const num = document.getElementById("num"), say = document.getElementById("say"), foot = document.getElementById("foot");
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    const layer = tab.dataset.layer;
+    document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", String(t === tab)));
+    counter.dataset.active = layer;
+    num.textContent = COPY[layer].n;
+    say.textContent = COPY[layer].say;
+    foot.textContent = COPY[layer].foot;
+  });
+});
+
+/* one reveal on the way in, nothing scattered */
+const targets = document.querySelectorAll("section .prose, figure, .counter, .qa .item, .card, .quote .inner");
+targets.forEach(t => t.classList.add("rv"));
+const io = new IntersectionObserver((entries) => {
+  entries.forEach((e, i) => {
+    if (!e.isIntersecting) return;
+    e.target.style.transitionDelay = Math.min(i * 60, 240) + "ms";
+    e.target.classList.add("in");
+    io.unobserve(e.target);
+  });
+}, { rootMargin: "0px 0px -8% 0px" });
+targets.forEach(t => io.observe(t));
+</script>
+</body>
+</html>
