@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { formatCost, formatDuration, localTime, projectColor, type ProjectDay, type TimelineSpan } from '../api.js';
+import {
+  ApiError,
+  api,
+  formatCost,
+  formatDuration,
+  localTime,
+  projectColor,
+  type ExclusionConflict,
+  type ProjectDay,
+  type TimelineSpan,
+} from '../api.js';
 import { axisTicks } from '../axis.js';
 
 export type BillableFilter = 'billable' | 'other' | 'all';
@@ -14,6 +24,8 @@ interface Props {
    * `byDay` in App.tsx), so a project's cost here is that one day's spend.
    */
   days: ProjectDay[];
+  /** Called after an exclusion is saved or removed, so the page refetches. */
+  onChanged: () => void;
 }
 
 const LABEL_WIDTH = 150;
@@ -72,7 +84,28 @@ function packLanes(spans: TimelineSpan[]): { packed: PackedSpan[]; laneCount: nu
 /** How often the now-line moves. A minute of drift is invisible at 900px across a day's worth of hours. */
 const NOW_TICK_MS = 30_000;
 
-export function TimelineStrip({ spans, filter, days }: Props) {
+/**
+ * `<input type="datetime-local">` wants local wall-clock time, with no
+ * timezone of its own.
+ *
+ * Includes seconds on purpose: a real event timestamp almost never lands on
+ * a whole minute, and truncating it here would silently narrow the window
+ * actually submitted — leaving a sub-minute sliver of the block un-excluded
+ * even when the fields are submitted untouched, with no way to select that
+ * sliver's own boundary through a minute-only field to clear it.
+ */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** The inverse: a bare `datetime-local` value has no timezone, so `Date` reads it as local — same convention `toLocalInput` wrote it in. */
+function fromLocalInput(value: string): Date {
+  return new Date(value);
+}
+
+export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
   const [hovered, setHovered] = useState<TimelineSpan | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -82,6 +115,87 @@ export function TimelineStrip({ spans, filter, days }: Props) {
   // they've expressed an interest in a fixed window.
   const [view, setView] = useState<View | null>(null);
   const [panning, setPanning] = useState(false);
+
+  // The agent span picked to correct — only agent blocks are clickable, since
+  // an exclusion only ever cuts the agent bucket (see excluded_spans and
+  // `traicker exclude`). Independent of `hovered`, which is transient.
+  const [selected, setSelected] = useState<TimelineSpan | null>(null);
+  // Prefilled to the clicked block's own bounds, but editable — the block's
+  // duration is usually not exactly how much was wrong (an outage might only
+  // be the tail end of it), so the window sent to the server is whatever
+  // these say, not necessarily the whole block.
+  const [excludeStart, setExcludeStart] = useState('');
+  const [excludeEnd, setExcludeEnd] = useState('');
+  // What the fields were prefilled to, so submit can tell "untouched" from
+  // "edited" per side. `datetime-local` only carries whole seconds — a real
+  // event timestamp almost never lands on one, so parsing an untouched field
+  // back would quietly shave off however many milliseconds got floored away.
+  // For a block already trimmed down to a couple of seconds, that shaved
+  // sliver is the whole remainder: it survives every "remove" click forever.
+  // Only a field the user actually retyped goes through the lossy string;
+  // an untouched one uses the span's own exact millisecond bounds.
+  const [initialStart, setInitialStart] = useState('');
+  const [initialEnd, setInitialEnd] = useState('');
+  const [excludeNote, setExcludeNote] = useState('');
+  const [excludeError, setExcludeError] = useState<string | null>(null);
+  const [excludeConflicts, setExcludeConflicts] = useState<ExclusionConflict[] | null>(null);
+  const [excluding, setExcluding] = useState(false);
+
+  const openExclude = (span: TimelineSpan) => {
+    const startStr = toLocalInput(span.start_utc);
+    const endStr = toLocalInput(span.end_utc);
+    setSelected(span);
+    setExcludeStart(startStr);
+    setExcludeEnd(endStr);
+    setInitialStart(startStr);
+    setInitialEnd(endStr);
+    setExcludeNote('');
+    setExcludeError(null);
+    setExcludeConflicts(null);
+  };
+
+  const cancelExclude = () => {
+    setSelected(null);
+    setExcludeConflicts(null);
+    setExcludeError(null);
+  };
+
+  const submitExclude = async (force: boolean) => {
+    if (!selected) return;
+    const startMs =
+      excludeStart === initialStart ? Date.parse(selected.start_utc) : fromLocalInput(excludeStart).getTime();
+    const endMs = excludeEnd === initialEnd ? Date.parse(selected.end_utc) : fromLocalInput(excludeEnd).getTime();
+    if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
+      setExcludeError('End must be after start.');
+      return;
+    }
+    setExcluding(true);
+    setExcludeError(null);
+    try {
+      await api.addExclusion({
+        projectId: selected.project_id,
+        startUtc: new Date(startMs).toISOString(),
+        endUtc: new Date(endMs).toISOString(),
+        note: excludeNote || undefined,
+        force,
+      });
+      setSelected(null);
+      setExcludeNote('');
+      setExcludeConflicts(null);
+      onChanged();
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        const body = cause.body as { conflicts?: ExclusionConflict[] };
+        setExcludeConflicts(body.conflicts ?? []);
+        setExcludeError('That window overlaps an existing exclusion.');
+      } else {
+        setExcludeError(cause instanceof Error ? cause.message : String(cause));
+        setExcludeConflicts(null);
+      }
+    } finally {
+      setExcluding(false);
+    }
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
@@ -272,6 +386,32 @@ export function TimelineStrip({ spans, filter, days }: Props) {
 
   const resetView = () => setView(null);
 
+  // What the two fields actually mean, spelled out live: the fields hold the
+  // window that gets *removed*, which reads the opposite way if all you see
+  // is two times that started out equal to the block's own bounds — someone
+  // narrowing them naturally expects to be describing the corrected span, not
+  // the cut. This makes the direction unambiguous before they submit.
+  let previewText: string | null = null;
+  if (selected) {
+    // Mirrors submitExclude's own untouched-field-uses-exact-bounds rule —
+    // otherwise the preview can promise a remainder that submit then doesn't
+    // actually leave behind (or the reverse), for the same reason a leftover
+    // under a second used to survive its own removal.
+    const cutStartMs =
+      excludeStart === initialStart ? Date.parse(selected.start_utc) : fromLocalInput(excludeStart).getTime();
+    const cutEndMs = excludeEnd === initialEnd ? Date.parse(selected.end_utc) : fromLocalInput(excludeEnd).getTime();
+    if (!Number.isNaN(cutStartMs) && !Number.isNaN(cutEndMs) && cutEndMs > cutStartMs) {
+      const blockStart = Date.parse(selected.start_utc);
+      const blockEnd = Date.parse(selected.end_utc);
+      const overlapMs = Math.max(0, Math.min(blockEnd, cutEndMs) - Math.max(blockStart, cutStartMs));
+      const remainMs = Math.max(selected.duration_ms - overlapMs, 0);
+      previewText =
+        remainMs > 0
+          ? `Removes ${formatDuration(overlapMs)} — leaves ${formatDuration(remainMs)} of the block untouched.`
+          : `Removes the whole block (${formatDuration(overlapMs)}).`;
+    }
+  }
+
   if (!model) {
     return (
       <p className="empty">
@@ -395,23 +535,52 @@ export function TimelineStrip({ spans, filter, days }: Props) {
                   );
                 })}
 
-                {/* Agent: translucent, stacked. Height shows real concurrency. */}
+                {/* Agent: translucent, stacked. Height shows real concurrency.
+                    Clickable — only agent blocks, since an exclusion only
+                    ever corrects the agent bucket. */}
                 {row.packed.map(({ span: s, lane }, i) => {
                   const x1 = x(Date.parse(s.start_utc));
                   const x2 = x(Date.parse(s.end_utc));
+                  const visibleWidth = Math.max(x2 - x1, 1.5);
+                  const laneY = row.y + FOCUS_HEIGHT + 4 + lane * (AGENT_HEIGHT + AGENT_GAP);
+                  // A block already narrowed down to a minute or less (the
+                  // leftover of a previous cut, say) can render as little as
+                  // 1.5px wide — wide enough to see, not wide enough to hit
+                  // with a mouse. The hit target is padded out independently
+                  // of what's drawn, so the one sliver still needing a fix
+                  // never becomes the one nobody can click.
+                  const hitWidth = Math.max(visibleWidth, 8);
+                  const hitX = x1 - (hitWidth - visibleWidth) / 2;
                   return (
-                    <rect
-                      key={`a${i}`}
-                      x={x1}
-                      y={row.y + FOCUS_HEIGHT + 4 + lane * (AGENT_HEIGHT + AGENT_GAP)}
-                      width={Math.max(x2 - x1, 1.5)}
-                      height={AGENT_HEIGHT}
-                      rx={1.5}
-                      fill={color}
-                      className={`span agent-span ${s.source}`}
-                      onMouseEnter={() => setHovered(s)}
-                      onMouseLeave={() => setHovered(null)}
-                    />
+                    <g key={`a${i}`}>
+                      <rect
+                        x={hitX}
+                        y={laneY - 3}
+                        width={hitWidth}
+                        height={AGENT_HEIGHT + 6}
+                        fill="transparent"
+                        className="span-hit"
+                        onMouseEnter={() => setHovered(s)}
+                        onMouseLeave={() => setHovered(null)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openExclude(s);
+                        }}
+                      />
+                      <rect
+                        x={x1}
+                        y={laneY}
+                        width={visibleWidth}
+                        height={AGENT_HEIGHT}
+                        rx={1.5}
+                        fill={color}
+                        // `:hover` can't reach this rect once pointer-events
+                        // is off it, so the highlight is driven from the
+                        // same `hovered` state the hit target already sets.
+                        className={`span agent-span excludable ${s.source} ${hovered === s ? 'span-hovered' : ''}`}
+                        pointerEvents="none"
+                      />
+                    </g>
                   );
                 })}
               </g>
@@ -436,23 +605,88 @@ export function TimelineStrip({ spans, filter, days }: Props) {
         <span className="legend-note">scroll to zoom · drag to pan</span>
       </div>
 
-      {/* Hover detail lives in component state, never in storage. */}
-      <div className={`tooltip ${hovered ? 'visible' : ''}`}>
-        {!hovered && <span className="tooltip-hint">Hover a block for what it was, when, and how long.</span>}
-        {hovered && (
-          <>
-            <strong>{hovered.title ?? '(untitled)'}</strong>
-            <span>
-              {hovered.project_name} · {hovered.bucket} · {hovered.source}
-              {hovered.agent_type ? ` · ${hovered.agent_type}` : ''}
-            </span>
-            <span>
-              {localTime(hovered.start_utc)} → {localTime(hovered.end_utc)} ({formatDuration(hovered.duration_ms)})
-              {hovered.truncated_by ? ` · cut: ${hovered.truncated_by}` : ''}
-            </span>
-          </>
-        )}
-      </div>
+      {/* Click-to-correct takes over this slot instead of stacking a second
+          panel below — the two are never useful at once. */}
+      {selected ? (
+        <div className="tooltip visible exclude-panel">
+          <div className="exclude-head">
+            <strong>Remove agent time</strong>
+            <button type="button" className="exclude-close" onClick={cancelExclude} aria-label="Cancel">
+              ×
+            </button>
+          </div>
+          <span>
+            {selected.project_name} · {selected.title ?? '(untitled)'} · block was{' '}
+            {formatDuration(selected.duration_ms)}
+          </span>
+          <div className="exclude-range">
+            <span className="exclude-range-label">Remove from</span>
+            <input
+              type="datetime-local"
+              step="1"
+              className="exclude-time"
+              value={excludeStart}
+              onChange={(event) => setExcludeStart(event.target.value)}
+            />
+            <span className="exclude-range-label">to</span>
+            <input
+              type="datetime-local"
+              step="1"
+              className="exclude-time"
+              value={excludeEnd}
+              onChange={(event) => setExcludeEnd(event.target.value)}
+            />
+          </div>
+          {previewText && <span className="exclude-preview">{previewText}</span>}
+          <input
+            type="text"
+            className="exclude-note"
+            placeholder="Why? (e.g. Opus outage, agent stuck retrying)"
+            value={excludeNote}
+            onChange={(event) => setExcludeNote(event.target.value)}
+          />
+          <div className="exclude-actions">
+            <button type="button" disabled={excluding} onClick={() => void submitExclude(false)}>
+              {excluding ? 'Removing…' : 'Remove this time'}
+            </button>
+            <button type="button" className="exclude-cancel" onClick={cancelExclude}>
+              Cancel
+            </button>
+          </div>
+          {excludeError && <div className="error">{excludeError}</div>}
+          {excludeConflicts && excludeConflicts.length > 0 && (
+            <div className="ef-conflicts">
+              {excludeConflicts.map((c) => (
+                <div key={c.id}>
+                  #{c.id} {c.start.slice(11, 16)}–{c.end.slice(11, 16)} UTC {c.note ? `· ${c.note}` : ''}
+                </div>
+              ))}
+              <button type="button" className="ef-force" onClick={() => void submitExclude(true)}>
+                Exclude anyway
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Hover detail lives in component state, never in storage. */
+        <div className={`tooltip ${hovered ? 'visible' : ''}`}>
+          {!hovered && <span className="tooltip-hint">Hover a block for what it was, when, and how long.</span>}
+          {hovered && (
+            <>
+              <strong>{hovered.title ?? '(untitled)'}</strong>
+              <span>
+                {hovered.project_name} · {hovered.bucket} · {hovered.source}
+                {hovered.agent_type ? ` · ${hovered.agent_type}` : ''}
+              </span>
+              <span>
+                {localTime(hovered.start_utc)} → {localTime(hovered.end_utc)} ({formatDuration(hovered.duration_ms)})
+                {hovered.truncated_by ? ` · cut: ${hovered.truncated_by}` : ''}
+                {hovered.bucket === 'agent' ? ' · click to exclude' : ''}
+              </span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

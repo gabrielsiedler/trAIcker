@@ -3,10 +3,11 @@ import type { Db } from '../core/db.js';
 import { setMeta } from '../core/db.js';
 import { MS_PER_DAY, MS_PER_MINUTE, localDay, toIso } from '../core/time.js';
 import type { EventRow, Span } from '../core/types.js';
+import { exclusionsInRange } from '../core/exclude.js';
 import { manualEntriesInRange, manualSpans } from '../core/manual.js';
 import { sessionLiveness, subagentLiveness } from '../ingest/titles.js';
 import { computeAgentSpans } from './agent.js';
-import { applyManualEntries } from './displace.js';
+import { applyExclusions, applyManualEntries } from './displace.js';
 import { computeFocusSpans } from './focus.js';
 import { computeOccupancySpans } from './occupancy.js';
 import { summarise } from './summary.js';
@@ -67,6 +68,7 @@ export function aggregate(db: Db, config: TraickerConfig, options: AggregateOpti
 
   const manual = manualEntriesInRange(db, earliest, now + MS_PER_DAY);
   const manualFocus = manualSpans(manual);
+  const exclusions = exclusionsInRange(db, earliest, now + MS_PER_DAY);
 
   const focus = computeFocusSpans(prompts, {
     tasks,
@@ -92,8 +94,13 @@ export function aggregate(db: Db, config: TraickerConfig, options: AggregateOpti
   // because that work genuinely happened while you were in the call.
   const displaced = applyManualEntries(focus.spans, agentSpans, manualFocus);
 
+  // Corrections come last and touch agent time only: they say a stretch of
+  // captured time was never real work (a subagent stuck retrying through an
+  // outage, say), not that you were somewhere else. Nothing is added back.
+  const correctedAgent = applyExclusions(displaced.agent, exclusions);
+
   const rebuild = new Set(targetDays);
-  const measured = [...displaced.focus, ...manualFocus, ...displaced.agent].filter((s) =>
+  const measured = [...displaced.focus, ...manualFocus, ...correctedAgent].filter((s) =>
     rebuild.has(s.local_day),
   );
 

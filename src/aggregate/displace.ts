@@ -1,5 +1,5 @@
 import { subtractIntervals, toIso, toMs } from '../core/time.js';
-import type { Interval, Span } from '../core/types.js';
+import type { ExcludedSpanRow, Interval, Span } from '../core/types.js';
 
 export interface DisplacementResult {
   focus: Span[];
@@ -71,4 +71,25 @@ function carve(span: Span, cuts: readonly Interval[]): Span[] {
 
 function toInterval(span: Span): Interval {
   return { start: toMs(span.start_utc), end: toMs(span.end_utc) };
+}
+
+/**
+ * Carves known-wrong windows out of agent time, project by project.
+ *
+ * Deliberately never touches focus, and never on any project but its own: an
+ * exclusion is a correction to one project's record, not a claim about where
+ * you were. See `ExcludedSpanRow` for why this is a separate mechanism from a
+ * manual entry rather than another `ManualKind`.
+ */
+export function applyExclusions(agentSpans: readonly Span[], exclusions: readonly ExcludedSpanRow[]): Span[] {
+  if (exclusions.length === 0) return [...agentSpans];
+
+  const byProject = new Map<number, Interval[]>();
+  for (const exclusion of exclusions) {
+    const list = byProject.get(exclusion.project_id) ?? [];
+    list.push({ start: toMs(exclusion.start_utc), end: toMs(exclusion.end_utc) });
+    byProject.set(exclusion.project_id, list);
+  }
+
+  return agentSpans.flatMap((span) => carve(span, byProject.get(span.project_id) ?? []));
 }

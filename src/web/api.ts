@@ -139,6 +139,24 @@ export interface ManualEntry {
   note: string | null;
 }
 
+export interface ExcludedSpan {
+  id: number;
+  project_id: number;
+  project_name: string;
+  start_utc: string;
+  end_utc: string;
+  tz_offset_min: number;
+  note: string | null;
+  created_at: string;
+}
+
+export interface ExclusionConflict {
+  id: number;
+  start: string;
+  end: string;
+  note: string | null;
+}
+
 export const WEEK_START_DAYS = [
   'monday',
   'tuesday',
@@ -277,6 +295,11 @@ export const api = {
     force?: boolean;
   }) => send<{ ok: true; entry: ManualEntry }>('POST', '/api/entries', entry),
   deleteEntry: (id: number) => send<{ ok: true }>('DELETE', `/api/entries/${id}`),
+
+  exclusions: (from: string, to: string) => get<{ exclusions: ExcludedSpan[] }>('/api/exclusions', { from, to }),
+  addExclusion: (entry: { projectId: number; startUtc: string; endUtc: string; note?: string; force?: boolean }) =>
+    send<{ ok: true; entry: ExcludedSpan }>('POST', '/api/exclusions', entry),
+  deleteExclusion: (id: number) => send<{ ok: true }>('DELETE', `/api/exclusions/${id}`),
 
   projectSettings: () =>
     get<{ configPath: string; projects: ProjectSettings[] }>('/api/projects/settings', {}),

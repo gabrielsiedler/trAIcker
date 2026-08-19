@@ -160,6 +160,26 @@ export interface ManualEntryRow {
 }
 
 /**
+ * A window where automatic capture is known wrong: a subagent dispatched into
+ * an outage sits retrying under the hood, then reports back through an
+ * ordinary successful tool call whose `duration_ms` covers the whole stretch —
+ * there is nothing in the hook payload that tells that time apart from real
+ * work. This is the correction: it carves agent time on its own project only,
+ * for exactly the window given, and adds nothing back. Unlike a manual entry
+ * it is not "you, present, on one thing", so it never touches focus and never
+ * competes with other projects for exclusivity.
+ */
+export interface ExcludedSpanRow {
+  id: number;
+  project_id: number;
+  start_utc: string;
+  end_utc: string;
+  tz_offset_min: number;
+  note: string | null;
+  created_at: string;
+}
+
+/**
  * `focus` and `agent` are measurements. `occupancy` is the billable view:
  * the union of the two, answering "how long was this project being worked on,
  * by me or by an agent I directed".

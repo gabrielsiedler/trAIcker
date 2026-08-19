@@ -6,6 +6,7 @@ import path from 'node:path';
 import { loadConfig, configPath } from '../core/config.js';
 import { loadEnvFile } from '../core/env.js';
 import { listProjects, openDb } from '../core/db.js';
+import { deleteExclusion, findExclusionOverlaps, insertExclusion, listExclusions } from '../core/exclude.js';
 import { deleteManualEntry, findOverlaps, insertManualEntry, listManualEntries } from '../core/manual.js';
 import { parseDay, parseDuration, parseTimeOfDay, toUtc } from '../core/parse.js';
 import { formatDuration, localDay, localOffsetMinutes } from '../core/time.js';
@@ -53,6 +54,9 @@ const USAGE = `trAIcker — passive time tracking for agent orchestration
   traicker add --project X ...        Log time spent off the tools
   traicker entries [range]            List manual entries
   traicker rm <id>                    Delete a manual entry
+  traicker exclude --project X ...    Correct agent time capture is known wrong
+  traicker excluded [range]           List exclusions
+  traicker unexclude <id>             Delete an exclusion
   traicker week                       Weekly progress against caps and targets
   traicker timesheet --project X      Billable day entries for an hourly client
   traicker note --project X --text .. Write your own line for a day (--clear removes)
@@ -90,6 +94,14 @@ Manual entries (meetings, research — anything that emits no events):
   A manual entry ends focus on every project for that window, and removes agent
   time on its own project so the same window is never billed twice. Agents on
   other projects keep counting — that work really happened.
+
+Exclusions (agent time that was captured but was not real work):
+  traicker exclude --project vyrve --from 21:40 --to 23:10 --note "Opus outage, agent stuck retrying"
+
+  Only cuts agent time on that one project, for that window. Never touches
+  focus, never touches other projects, adds nothing back. Use this when a
+  subagent's tool call reports a long duration that was mostly the model
+  provider being down, not the agent working.
 
 Timesheet billing rules live in ~/.traicker/config.json under
 projects["<path>"].billing — see config.example.json.
@@ -758,6 +770,175 @@ function rmCommand(args: Args): number {
   return 0;
 }
 
+/**
+ * Corrects the record when automatic capture is known wrong: a subagent
+ * dispatched into a model outage sits retrying under the hood, then reports
+ * back through an ordinary successful tool call whose `duration_ms` covers
+ * the whole stretch. Nothing in the hook payload tells that time apart from
+ * real work, so this is the only way to zero it out.
+ *
+ * Unlike `add`, this never adds anything back and never touches focus or
+ * other projects — it says "this captured window was not real work", not
+ * "here is what I was doing instead".
+ */
+function excludeCommand(args: Args): number {
+  const filter = args.values.get('project');
+  if (!filter) {
+    console.error('exclude needs --project <fragment>.');
+    return 1;
+  }
+
+  const config = loadConfig();
+  const db = openDb(config);
+
+  const project = listProjects(db).find(
+    (p) =>
+      p.name.toLowerCase().includes(filter.toLowerCase()) || p.path.toLowerCase().includes(filter.toLowerCase()),
+  );
+  if (!project) {
+    console.error(`No project matching "${filter}". Try: traicker projects`);
+    return 1;
+  }
+
+  const offset = localOffsetMinutes();
+  const dayInput = args.values.get('day') ?? (args.flags.has('yesterday') ? 'yesterday' : 'today');
+  const day = parseDay(dayInput);
+  if (!day) {
+    console.error(`Could not read --day "${dayInput}". Use YYYY-MM-DD, today or yesterday.`);
+    return 1;
+  }
+
+  const fromInput = args.values.get('from') ?? args.values.get('at');
+  if (!fromInput) {
+    console.error('exclude needs --from <time> (or --at).');
+    return 1;
+  }
+  const fromMinutes = parseTimeOfDay(fromInput);
+  if (fromMinutes === null) {
+    console.error(`Could not read the time "${fromInput}". Try 14:00, 1400 or 2pm.`);
+    return 1;
+  }
+
+  let endMinutes: number | null = null;
+  const toInput = args.values.get('to');
+  const forInput = args.values.get('for') ?? args.values.get('duration');
+
+  if (toInput) {
+    endMinutes = parseTimeOfDay(toInput);
+    if (endMinutes === null) {
+      console.error(`Could not read the time "${toInput}". Try 14:30, 1430 or 2:30pm.`);
+      return 1;
+    }
+    if (endMinutes <= fromMinutes) endMinutes += 24 * 60;
+  } else if (forInput) {
+    const minutes = parseDuration(forInput);
+    if (minutes === null) {
+      console.error(`Could not read the duration "${forInput}". Try 30m, 1h or 1h30m.`);
+      return 1;
+    }
+    endMinutes = fromMinutes + minutes;
+  } else {
+    console.error('exclude needs --to <time> or --for <duration>.');
+    return 1;
+  }
+
+  const startUtc = toUtc(day, fromMinutes, offset);
+  const endUtc = toUtc(day, endMinutes, offset);
+
+  const overlaps = findExclusionOverlaps(db, project.id, startUtc, endUtc);
+  if (overlaps.length > 0 && !args.flags.has('force')) {
+    console.error(`That window already overlaps an exclusion on ${project.name}:\n`);
+    for (const conflict of overlaps) {
+      console.error(
+        `  #${conflict.entry.id}  ${conflict.entry.start_utc.slice(11, 16)}-${conflict.entry.end_utc.slice(11, 16)} UTC` +
+          `  ${conflict.entry.note ?? '(no note)'}`,
+      );
+    }
+    console.error('\nPass --force if the overlap is intentional.');
+    return 1;
+  }
+
+  const note = args.values.get('note') ?? null;
+  const entry = insertExclusion(db, {
+    projectId: project.id,
+    startUtc,
+    endUtc,
+    tzOffsetMin: offset,
+    note,
+  });
+
+  const minutes = Math.round((endUtc - startUtc) / 60_000);
+  console.log(
+    `#${entry.id}  ${project.name}  ${day} ${formatMinutes(fromMinutes)}-${formatMinutes(endMinutes)} local` +
+      `  (${formatDuration(minutes * 60_000)})${note ? ` — ${note}` : ''}`,
+  );
+
+  const result = sync(db, config);
+  console.log(`\nRebuilt ${result.aggregate.daysRebuilt.length} day(s).`);
+  console.log(`Agent time on ${project.name} is cut for this window. Nothing else changes.`);
+  return 0;
+}
+
+function excludedCommand(args: Args): number {
+  const { db } = openRefreshed(args);
+  const range = args.flags.has('today') || hasAnyRangeFlag(args) ? rangeFrom(args) : resolveRange('week');
+  const rows = listExclusions(db, range.from, range.to);
+
+  if (args.flags.has('json')) {
+    console.log(JSON.stringify(rows, null, 2));
+    return 0;
+  }
+
+  if (rows.length === 0) {
+    console.log(`No exclusions between ${range.from} and ${range.to}.`);
+    return 0;
+  }
+
+  console.log(
+    table(
+      ['ID', 'DAY', 'TIME', 'DUR', 'PROJECT', 'NOTE'],
+      rows.map((r) => {
+        const start = Date.parse(r.start_utc) + r.tz_offset_min * 60_000;
+        const end = Date.parse(r.end_utc) + r.tz_offset_min * 60_000;
+        return [
+          `#${r.id}`,
+          new Date(start).toISOString().slice(0, 10),
+          `${new Date(start).toISOString().slice(11, 16)}-${new Date(end).toISOString().slice(11, 16)}`,
+          formatDuration(end - start),
+          r.project_name,
+          r.note ?? '—',
+        ];
+      }),
+      ['left', 'left', 'left', 'right', 'left', 'left'],
+    ),
+  );
+  console.log('\nTimes are local. Agent time only — focus is never touched by an exclusion.');
+  return 0;
+}
+
+function unexcludeCommand(args: Args): number {
+  const raw = args.values.get('id') ?? process.argv[3];
+  const id = Number(String(raw ?? '').replace('#', ''));
+  if (!Number.isInteger(id) || id <= 0) {
+    console.error('unexclude needs an entry id. Try: traicker excluded');
+    return 1;
+  }
+
+  const config = loadConfig();
+  const db = openDb(config);
+
+  const removed = deleteExclusion(db, id);
+  if (!removed) {
+    console.error(`No exclusion #${id}.`);
+    return 1;
+  }
+
+  console.log(`Removed #${id}${removed.note ? ` — ${removed.note}` : ''}.`);
+  sync(db, config);
+  console.log('Rebuilt. The window counts again.');
+  return 0;
+}
+
 /** `870` -> `14:30`, for echoing back what was understood. */
 function formatMinutes(minutesOfDay: number): string {
   const normalised = minutesOfDay % (24 * 60);
@@ -1024,6 +1205,12 @@ function main(): number {
       return entriesCommand(args);
     case 'rm':
       return rmCommand(args);
+    case 'exclude':
+      return excludeCommand(args);
+    case 'excluded':
+      return excludedCommand(args);
+    case 'unexclude':
+      return unexcludeCommand(args);
     case 'commitments':
     case 'week':
       return commitmentsCommand(args);

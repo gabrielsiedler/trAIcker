@@ -26,6 +26,24 @@ duration replaces it as soon as the stop arrives. A session killed mid-agent
 holds the span open to the ceiling. Those are marked `open` instead of
 `max_span`, so `traicker timeline` can tell an estimate from an observation.
 
+A subagent still counts even when the reason it took long was not work. If the
+model provider is down, a dispatched subagent typically does not fail outright:
+it sits retrying under the hood, then reports back through an ordinary
+successful tool call once the provider recovers. The `duration_ms` on that call
+covers the whole stretch, and nothing in it says how much was retries versus
+real work. Fix a specific window with:
+
+```bash
+traicker exclude --project vyrve --from 21:40 --to 23:10 --note "Opus outage, agent stuck retrying"
+traicker excluded --week
+traicker unexclude 4
+```
+
+This is not a manual entry. It cuts agent time on that one project, for that
+window, and adds nothing back. It says the captured time was not real work,
+not "here is what I was doing instead". Focus is never touched, and other
+projects are never touched, even ones running in the same window.
+
 **Descriptions never contain raw prompt text.** Labels come from declared task
 subjects or from Claude Code's own `ai-title`. When neither exists, the day
 falls back to a neutral "Development and review." instead of pasting something

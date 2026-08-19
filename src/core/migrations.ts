@@ -319,6 +319,32 @@ const M012_SUBAGENT_USAGE = /* sql */ `
 ALTER TABLE usage_cursor RENAME COLUMN session_id TO transcript_key;
 `;
 
+// Version 13 is deliberately not used. A different, since-reverted migration
+// briefly held that number during development and was live long enough for a
+// running dev instance to apply it and stamp user_version = 13 on a real
+// database before the source went back to 12 migrations. Reusing 13 for this
+// one would make migrate() skip it forever on that database, since the runner
+// only compares version numbers, never migration content. See
+// context/decisoes.md, 2026-08-18.
+const M014_EXCLUDED_SPANS = /* sql */ `
+-- A window where automatic capture is known wrong (e.g. a subagent dispatched
+-- into a model outage retries under the hood, then reports back through an
+-- ordinary successful tool call whose duration_ms covers the whole stretch).
+-- Unlike manual_entries this carves agent time on one project only and adds
+-- nothing back: it is a correction to the record, not a category of work.
+CREATE TABLE excluded_spans (
+  id            INTEGER PRIMARY KEY,
+  project_id    INTEGER NOT NULL REFERENCES projects(id),
+  start_utc     TEXT    NOT NULL,
+  end_utc       TEXT    NOT NULL,
+  tz_offset_min INTEGER NOT NULL,
+  note          TEXT,
+  created_at    TEXT    NOT NULL
+);
+
+CREATE INDEX idx_excluded_spans_project ON excluded_spans (project_id, start_utc);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'init', sql: M001_INIT },
   { version: 2, name: 'occupancy', sql: M002_OCCUPANCY },
@@ -332,6 +358,8 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 10, name: 'project_colour', sql: M010_PROJECT_COLOUR },
   { version: 11, name: 'model_usage', sql: M011_MODEL_USAGE },
   { version: 12, name: 'subagent_usage', sql: M012_SUBAGENT_USAGE },
+  // 13 skipped on purpose — see the comment above M014_EXCLUDED_SPANS.
+  { version: 14, name: 'excluded_spans', sql: M014_EXCLUDED_SPANS },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

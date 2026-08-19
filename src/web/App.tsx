@@ -413,6 +413,7 @@ export function App() {
                 spans={spans}
                 filter={laneFilter}
                 days={days}
+                onChanged={() => void load()}
               />
             )}
           </section>

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyManualEntries } from '../src/aggregate/displace.js';
+import { applyExclusions, applyManualEntries } from '../src/aggregate/displace.js';
 import { subtractIntervals } from '../src/core/time.js';
-import type { Span } from '../src/core/types.js';
+import type { ExcludedSpanRow, Span } from '../src/core/types.js';
 
 const MIN = 60_000;
 const BASE = Date.parse('2026-08-10T12:00:00.000Z');
@@ -126,5 +126,44 @@ describe('applyManualEntries', () => {
     // Focus loses both windows; agent on project 1 loses only its own.
     expect(mins(result.focus)).toEqual([10, 10, 20]);
     expect(mins(result.agent)).toEqual([10, 40]);
+  });
+});
+
+function exclusion(from: number, to: number, projectId = 1): ExcludedSpanRow {
+  return {
+    id: 1,
+    project_id: projectId,
+    start_utc: at(from),
+    end_utc: at(to),
+    tz_offset_min: 0,
+    note: null,
+    created_at: at(0),
+  };
+}
+
+describe('applyExclusions', () => {
+  it('cuts agent time on the exclusion own project', () => {
+    // A subagent dispatched into an outage retries under the hood and reports
+    // back a duration_ms that covers the whole stretch; this is the correction.
+    const result = applyExclusions([span('agent', 'subagent', 0, 60, 1)], [exclusion(10, 40, 1)]);
+    expect(mins(result)).toEqual([10, 20]);
+  });
+
+  it('leaves agent time on other projects alone', () => {
+    const result = applyExclusions([span('agent', 'subagent', 0, 60, 2)], [exclusion(10, 40, 1)]);
+    expect(mins(result)).toEqual([60]);
+  });
+
+  it('never touches focus', () => {
+    // applyExclusions only ever receives the agent array, but the guarantee
+    // that matters is that it takes no focus spans as input at all — an
+    // exclusion is not a claim about where you were.
+    const agentResult = applyExclusions([span('agent', 'main_turn', 0, 60, 1)], [exclusion(0, 60, 1)]);
+    expect(agentResult).toHaveLength(0);
+  });
+
+  it('changes nothing when there are no exclusions', () => {
+    const agent = [span('agent', 'subagent', 0, 60, 1)];
+    expect(applyExclusions(agent, [])).toEqual(agent);
   });
 });

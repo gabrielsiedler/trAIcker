@@ -120,6 +120,7 @@ app is holding the database.
 | `traicker timeline --day D` | every span of a day, in order |
 | `traicker timesheet --project X` | one line per day, for a client's form (`--csv`, `--month`) |
 | `traicker add` · `entries` · `rm` | time off the tools: meetings, calls, research |
+| `traicker exclude` · `excluded` · `unexclude` | correct agent time capture got wrong, like a subagent stuck retrying through a provider outage |
 | `traicker note` · `summarize` · `translate` | fix, rewrite or translate a timesheet line |
 | `traicker reproject` | re-attribute history after changing projects in config |
 | `traicker serve` | dashboard on `:4317` |

@@ -16,6 +16,7 @@ import {
 } from '../core/config.js';
 import { updateProjectConfig, type ProjectPatch } from '../core/config-writer.js';
 import { listProjects, openDb, refreshProjectMetadata, type Db } from '../core/db.js';
+import { deleteExclusion, findExclusionOverlaps, insertExclusion, listExclusions } from '../core/exclude.js';
 import { deleteManualEntry, findOverlaps, insertManualEntry, listManualEntries } from '../core/manual.js';
 import { parseDay, parseDuration, parseTimeOfDay, toUtc } from '../core/parse.js';
 import { localDay, localOffsetMinutes, toHours, toMs, WEEK_START_DAYS, type WeekStart } from '../core/time.js';
@@ -398,6 +399,84 @@ export function createApp(db: Db, initialConfig: TraickerConfig) {
     // Same reasoning as the insert path: removing the entry is itself not an
     // event, so its day(s) must be named explicitly or a backdated meeting's
     // removal never reaches that day's spans.
+    const removedDays = new Set([
+      localDay(toMs(removed.start_utc), removed.tz_offset_min),
+      localDay(toMs(removed.end_utc), removed.tz_offset_min),
+    ]);
+    sync(db, config, [...removedDays]);
+    lastSync = Date.now();
+    res.json({ ok: true });
+  });
+
+  app.get('/api/exclusions', (req: Request, res: Response) => {
+    const range = rangeOf(req);
+    res.json({ range, exclusions: listExclusions(db, range.from, range.to) });
+  });
+
+  /**
+   * Corrects agent time capture that is known wrong (an agent stuck retrying
+   * through an outage, for example) — cuts the agent bucket only, in the
+   * exclusion's own project, and never touches focus. See `traicker exclude`,
+   * which this mirrors, and `applyExclusions` in `aggregate/displace.ts` for
+   * where the cut is actually applied.
+   *
+   * Timestamps are the span's own ISO strings, sent verbatim from the
+   * timeline click — no day/time-of-day parsing needed here, unlike a typed
+   * manual entry.
+   */
+  app.post('/api/exclusions', (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+
+    const project = listProjects(db).find((p) => String(p.id) === String(body['projectId']));
+    if (!project) {
+      res.status(400).json({ error: 'unknown project' });
+      return;
+    }
+
+    const startUtc = Date.parse(String(body['startUtc'] ?? ''));
+    const endUtc = Date.parse(String(body['endUtc'] ?? ''));
+    if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc) || endUtc <= startUtc) {
+      res.status(400).json({ error: 'invalid time window' });
+      return;
+    }
+
+    const overlaps = findExclusionOverlaps(db, project.id, startUtc, endUtc);
+    if (overlaps.length > 0 && body['force'] !== true) {
+      res.status(409).json({
+        error: 'overlaps existing exclusion',
+        conflicts: overlaps.map((c) => ({
+          id: c.entry.id,
+          start: c.entry.start_utc,
+          end: c.entry.end_utc,
+          note: c.entry.note,
+        })),
+      });
+      return;
+    }
+
+    const note = typeof body['note'] === 'string' && body['note'].trim().length > 0 ? body['note'].trim() : null;
+    const offset = localOffsetMinutes();
+    const entry = insertExclusion(db, {
+      projectId: project.id,
+      startUtc,
+      endUtc,
+      tzOffsetMin: offset,
+      note,
+    });
+
+    const entryDays = new Set([localDay(startUtc, offset), localDay(endUtc, offset)]);
+    sync(db, config, [...entryDays]);
+    lastSync = Date.now();
+    res.json({ ok: true, entry });
+  });
+
+  app.delete('/api/exclusions/:id', (req: Request, res: Response) => {
+    const removed = deleteExclusion(db, Number(req.params['id']));
+    if (!removed) {
+      res.status(404).json({ error: 'no such exclusion' });
+      return;
+    }
+
     const removedDays = new Set([
       localDay(toMs(removed.start_utc), removed.tz_offset_min),
       localDay(toMs(removed.end_utc), removed.tz_offset_min),

@@ -1,9 +1,12 @@
 import { BrowserWindow, Menu, Tray, app, nativeImage, shell } from 'electron';
+import type { NativeImage } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadEnvFile } from '../core/env.js';
 import { startServer, type RunningServer } from '../server/app.js';
+import { sync } from '../sync.js';
 
 /**
  * The desktop shell.
@@ -55,8 +58,102 @@ let tray: Tray | null = null;
 /** Set only by the tray's Quit item — a plain window close hides instead. */
 let quitting = false;
 
+/** The two images `tray.setImage()` swaps between; built once in `buildTray`. */
+let idleTrayImage: NativeImage | null = null;
+let activeTrayImage: NativeImage | null = null;
+let trayPollTimer: ReturnType<typeof setInterval> | null = null;
+
+/** How often the tray checks whether anything is currently being tracked. */
+const TRAY_POLL_MS = 60_000;
+/** Tray icons are small; captured larger so the down-resize stays clean. */
+const TRAY_CAPTURE_SIZE = 256;
+/** Same green the dashboard uses for "billable" (styles.css --billable). */
+const TRAY_DOT_COLOR = '#3fb950';
+/** Dashboard panel background, doubling as a ring so the dot reads against
+ *  both light and dark tray backgrounds instead of blending into either. */
+const TRAY_RING_COLOR = '#0d1117';
+
 function iconPath(): string {
   return path.join(appRoot, 'public', 'logo.png');
+}
+
+/**
+ * Composites a status dot onto the tray icon by rendering HTML through this
+ * process's own Chromium, rather than hand-rolling pixel math against
+ * `nativeImage`'s raw bitmap buffer — its format is undocumented and
+ * platform-dependent (Electron's own docs: "the specific format is
+ * platform-dependent"), so guessing at it would risk a wrong-channel-order
+ * icon on macOS while looking fine here. `capturePage()` on an offscreen
+ * window sidesteps that with no new dependency.
+ */
+async function buildActiveTrayImage(): Promise<NativeImage> {
+  // Inlined as a data URI rather than a `file://` src: Electron blocks
+  // local-file subresource loads from a `data:` document, which silently
+  // dropped the dog and left only the dot (its own inline CSS, no fetch)
+  // painted on a transparent background.
+  const logoUrl = `data:image/png;base64,${fs.readFileSync(iconPath()).toString('base64')}`;
+  const dot = (radius: number, color: string, inset: number): string => {
+    const d = radius * 2;
+    return `position:absolute;right:${inset}px;bottom:${inset}px;width:${d}px;height:${d}px;border-radius:50%;background:${color};`;
+  };
+  const html = `<!doctype html><html><body style="margin:0;width:${TRAY_CAPTURE_SIZE}px;height:${TRAY_CAPTURE_SIZE}px;position:relative;background:transparent;">
+    <img src="${logoUrl}" style="width:${TRAY_CAPTURE_SIZE}px;height:${TRAY_CAPTURE_SIZE}px;display:block;">
+    <div style="${dot(48, TRAY_RING_COLOR, 18)}"></div>
+    <div style="${dot(40, TRAY_DOT_COLOR, 26)}"></div>
+  </body></html>`;
+
+  const win = new BrowserWindow({
+    width: TRAY_CAPTURE_SIZE,
+    height: TRAY_CAPTURE_SIZE,
+    show: false,
+    frame: false,
+    skipTaskbar: true,
+    transparent: true,
+    backgroundColor: '#00000000',
+    webPreferences: { offscreen: true },
+  });
+  try {
+    await win.loadURL(`data:text/html,${encodeURIComponent(html)}`);
+    // Offscreen rendering paints asynchronously; give the image a moment to
+    // decode and the layout to settle before grabbing a frame.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return await win.webContents.capturePage();
+  } finally {
+    win.destroy();
+  }
+}
+
+/**
+ * A crashed session's span can stay labelled `open` forever once its
+ * liveness evidence stops advancing (see `subagentCeiling` /
+ * `livenessCeiling` in aggregate/agent.ts): its `end_utc` freezes in the
+ * past rather than reclassifying. `open` alone would make the dot latch on
+ * from a session that died days ago, so this also requires the span to still
+ * be reaching toward the present.
+ */
+const TRAY_ACTIVE_WINDOW_MS = 3 * 60_000;
+
+/** Whether any focus or agent span is still genuinely running right now. */
+function isTrackingNow(db: RunningServer['db']): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM spans
+       WHERE bucket IN ('focus', 'agent') AND truncated_by = 'open' AND end_utc >= ?
+       LIMIT 1`,
+    )
+    .get(new Date(Date.now() - TRAY_ACTIVE_WINDOW_MS).toISOString());
+  return row !== undefined;
+}
+
+async function pollTrayState(): Promise<void> {
+  if (!tray || !running || !idleTrayImage || !activeTrayImage) return;
+  try {
+    sync(running.db, running.config);
+  } catch {
+    // A background poll failing must not crash the tray or spam the user;
+    // the dashboard's own refresh surfaces real sync problems on its own terms.
+  }
+  tray.setImage(isTrackingNow(running.db) ? activeTrayImage : idleTrayImage);
 }
 
 function createWindow(url: string): BrowserWindow {
@@ -128,11 +225,15 @@ function showWindow(url: string): void {
   window.focus();
 }
 
-function buildTray(url: string): void {
+async function buildTray(url: string): Promise<void> {
   // Resized here because the source is a single large PNG; a tray icon has to
   // be small and, on macOS, template-rendered to follow the menu bar theme.
-  const image = nativeImage.createFromPath(iconPath()).resize({ width: 18, height: 18 });
-  tray = new Tray(image);
+  idleTrayImage = nativeImage.createFromPath(iconPath()).resize({ width: 18, height: 18 });
+  // Built from the live app's own renderer rather than a checked-in asset, so
+  // it never drifts from public/logo.png. See buildActiveTrayImage for why.
+  activeTrayImage = (await buildActiveTrayImage()).resize({ width: 18, height: 18 });
+
+  tray = new Tray(idleTrayImage);
   tray.setToolTip('trAIcker');
 
   const refreshMenu = (): void => {
@@ -164,6 +265,13 @@ function buildTray(url: string): void {
 
   refreshMenu();
   tray.on('click', () => showWindow(url));
+
+  // Reflects live tracking state even while the window is hidden, which is
+  // most of the time for a tray app. Cleared before re-created so the
+  // EADDRINUSE retry path (buildTray called a second time) never doubles up.
+  if (trayPollTimer) clearInterval(trayPollTimer);
+  trayPollTimer = setInterval(() => void pollTrayState(), TRAY_POLL_MS);
+  void pollTrayState();
 }
 
 function start(): void {
@@ -176,7 +284,7 @@ function start(): void {
 
   started.server.on('listening', () => {
     showWindow(viewUrl);
-    buildTray(viewUrl);
+    void buildTray(viewUrl);
   });
 
   started.server.on('error', (error: NodeJS.ErrnoException) => {
@@ -189,7 +297,7 @@ function start(): void {
       running = null;
       started.db.close();
       showWindow(viewUrl);
-      buildTray(viewUrl);
+      void buildTray(viewUrl);
       return;
     }
     console.error(`Could not start the embedded server: ${error.message}`);
@@ -220,6 +328,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => {
     quitting = true;
+    if (trayPollTimer) clearInterval(trayPollTimer);
     running?.server.close();
     running?.db.close();
   });

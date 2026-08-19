@@ -34,7 +34,7 @@ body {
   display: grid;
   grid-template-columns: 214px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100dvh;
 }
 
 /* ── toolbar ────────────────────────────────────────────────────────────── */
@@ -128,6 +128,7 @@ body {
   flex-direction: column;
   gap: 1px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .side-group {
@@ -204,6 +205,7 @@ body {
   min-width: 0;
   padding: 22px 24px 64px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* Below this the sidebar would eat a phone screen, so it becomes a scrolling
@@ -725,7 +727,8 @@ table.data .muted {
   opacity: 0.3;
 }
 
-.timeline .span:hover {
+.timeline .span:hover,
+.timeline .span-hovered {
   opacity: 1;
   stroke: var(--text);
   stroke-width: 1;
@@ -801,6 +804,118 @@ table.data .muted {
 .tooltip strong {
   color: var(--text);
   font-size: 13.5px;
+}
+
+/* Agent blocks are the only shape the panel says so about, and only they
+   carry the exclusion mechanism — clicking one takes over the tooltip slot
+   below the strip rather than opening a second panel. */
+.timeline .agent-span.excludable {
+  cursor: pointer;
+}
+
+/* Invisible click target padded out around a (possibly sub-pixel) agent
+   block — see the comment at its render site in TimelineStrip. */
+.timeline .span-hit {
+  cursor: pointer;
+}
+
+.exclude-panel {
+  gap: 8px;
+  padding: 12px 13px;
+}
+
+.exclude-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.exclude-close {
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.exclude-close:hover {
+  color: var(--text);
+}
+
+.exclude-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.exclude-range-label {
+  font-size: 12px;
+}
+
+/* Spells out which way the edit cuts, in words, right under the fields —
+   the two datetime inputs alone read as "the corrected span" as easily as
+   "the part to remove", so this is the tie-breaker before submit. */
+.exclude-preview {
+  color: var(--agent);
+  font-size: 12px;
+}
+
+.exclude-time {
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.exclude-note {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.exclude-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.exclude-actions button {
+  padding: 7px 15px;
+  background: color-mix(in srgb, var(--agent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--agent) 45%, transparent);
+  border-radius: var(--radius);
+  color: var(--agent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.exclude-actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent) 28%, transparent);
+}
+
+.exclude-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.exclude-actions .exclude-cancel {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
 }
 
 /* ── timesheet ──────────────────────────────────────────────────────────── */
