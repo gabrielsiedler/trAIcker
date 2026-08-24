@@ -83,8 +83,12 @@ function iconPath(): string {
  * `nativeImage`'s raw bitmap buffer — its format is undocumented and
  * platform-dependent (Electron's own docs: "the specific format is
  * platform-dependent"), so guessing at it would risk a wrong-channel-order
- * icon on macOS while looking fine here. `capturePage()` on an offscreen
- * window sidesteps that with no new dependency.
+ * icon on macOS while looking fine here. `capturePage()` on a plain hidden
+ * window sidesteps that with no new dependency — deliberately not
+ * `offscreen: true`: that routes the capture through Chromium's Viz
+ * compositor in a mode that isn't guaranteed to have a surface ready by the
+ * time we grab it, which throws an unhandled `UnknownVizError` and, worse,
+ * was aborting `buildTray` before the `Tray` itself got created.
  */
 async function buildActiveTrayImage(): Promise<NativeImage> {
   // Inlined as a data URI rather than a `file://` src: Electron blocks
@@ -110,12 +114,11 @@ async function buildActiveTrayImage(): Promise<NativeImage> {
     skipTaskbar: true,
     transparent: true,
     backgroundColor: '#00000000',
-    webPreferences: { offscreen: true },
   });
   try {
     await win.loadURL(`data:text/html,${encodeURIComponent(html)}`);
-    // Offscreen rendering paints asynchronously; give the image a moment to
-    // decode and the layout to settle before grabbing a frame.
+    // The image decodes and lays out asynchronously after load; give it a
+    // moment to settle before grabbing a frame.
     await new Promise((resolve) => setTimeout(resolve, 200));
     return await win.webContents.capturePage();
   } finally {
@@ -229,12 +232,19 @@ async function buildTray(url: string): Promise<void> {
   // Resized here because the source is a single large PNG; a tray icon has to
   // be small and, on macOS, template-rendered to follow the menu bar theme.
   idleTrayImage = nativeImage.createFromPath(iconPath()).resize({ width: 18, height: 18 });
-  // Built from the live app's own renderer rather than a checked-in asset, so
-  // it never drifts from public/logo.png. See buildActiveTrayImage for why.
-  activeTrayImage = (await buildActiveTrayImage()).resize({ width: 18, height: 18 });
 
   tray = new Tray(idleTrayImage);
   tray.setToolTip('trAIcker');
+
+  // Built from the live app's own renderer rather than a checked-in asset, so
+  // it never drifts from public/logo.png (see buildActiveTrayImage for why).
+  // Awaited after the Tray already exists, and caught, so a capture failure
+  // costs only the active-state dot rather than the tray icon itself.
+  try {
+    activeTrayImage = (await buildActiveTrayImage()).resize({ width: 18, height: 18 });
+  } catch (error) {
+    console.error('Could not build the active tray icon; the dot will stay off:', error);
+  }
 
   const refreshMenu = (): void => {
     tray?.setContextMenu(
