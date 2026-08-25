@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { configPath, type BillingConfig, type CommitmentConfig } from './config.js';
+import { configPath, type BillingConfig, type CommitmentConfig, type ModelPricingEntry } from './config.js';
 import { normalizePath, pathKey } from './paths.js';
 
 export interface ProjectPatch {
@@ -84,6 +84,64 @@ function commentsOf(value: unknown): Record<string, unknown> {
     if (key.startsWith('_')) kept[key] = v;
   }
   return kept;
+}
+
+/**
+ * Adds or replaces one model's rate for one `effectiveFrom` day.
+ *
+ * An upsert, not an append: re-submitting the same day (correcting a typo, or
+ * an LLM lookup redone) must replace that entry rather than pile up a second
+ * one effective the same day, which would make `pricingFor`'s "most recent
+ * entry at or before this day" pick whichever happened to sort last.
+ */
+export function upsertModelPricingEntry(model: string, entry: ModelPricingEntry): string {
+  const file = configPath();
+  const raw = readConfig(file);
+
+  const modelPricing =
+    typeof raw['modelPricing'] === 'object' && raw['modelPricing'] !== null
+      ? { ...(raw['modelPricing'] as Record<string, unknown>) }
+      : {};
+
+  const existing = Array.isArray(modelPricing[model]) ? (modelPricing[model] as unknown[]) : [];
+  const kept = existing.filter((item) => !isSameDay(item, entry.effectiveFrom));
+  kept.push(entry);
+  kept.sort((a, b) => dayOf(a).localeCompare(dayOf(b)));
+
+  modelPricing[model] = kept;
+  raw['modelPricing'] = modelPricing;
+
+  return backupAndWrite(file, `${JSON.stringify(raw, null, 2)}\n`);
+}
+
+/** Drops one rate. Removes the model's key entirely once its history is empty, rather than leaving `[]` behind. */
+export function deleteModelPricingEntry(model: string, effectiveFrom: string): string {
+  const file = configPath();
+  const raw = readConfig(file);
+
+  const modelPricing =
+    typeof raw['modelPricing'] === 'object' && raw['modelPricing'] !== null
+      ? { ...(raw['modelPricing'] as Record<string, unknown>) }
+      : {};
+
+  const existing = Array.isArray(modelPricing[model]) ? (modelPricing[model] as unknown[]) : [];
+  const kept = existing.filter((item) => !isSameDay(item, effectiveFrom));
+
+  if (kept.length > 0) modelPricing[model] = kept;
+  else delete modelPricing[model];
+  raw['modelPricing'] = modelPricing;
+
+  return backupAndWrite(file, `${JSON.stringify(raw, null, 2)}\n`);
+}
+
+function dayOf(item: unknown): string {
+  return typeof item === 'object' && item !== null && typeof (item as Record<string, unknown>)['effectiveFrom'] === 'string'
+    ? ((item as Record<string, unknown>)['effectiveFrom'] as string)
+    : '';
+}
+
+function isSameDay(item: unknown, day: string): boolean {
+  return dayOf(item) === day;
 }
 
 function readConfig(file: string): Record<string, unknown> {

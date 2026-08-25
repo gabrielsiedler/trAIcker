@@ -1,9 +1,9 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { TRACKED_EVENTS, type TrackedEvent } from '../core/types.js';
+import { hookCommand, hookScriptPath } from './hook-command.js';
 
 /**
  * Per-hook timeout in seconds.
@@ -44,12 +44,7 @@ export function settingsPath(scope: 'user' | 'project', projectDir?: string): st
     : path.join(projectDir ?? process.cwd(), '.claude', 'settings.json');
 }
 
-/** Absolute path to the compiled hook, in the forward-slash form settings want. */
-export function hookScriptPath(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  // src/install/hooks.ts -> dist/install/hooks.js, so the hook is one level up.
-  return path.resolve(here, '..', 'hook.js').replace(/\\/g, '/');
-}
+export { hookScriptPath };
 
 /**
  * Events that must be narrowed by a matcher.
@@ -71,7 +66,7 @@ function hookEntry(hookScript: string, event: TrackedEvent): HookMatcher {
         type: 'command',
         // Forward slashes and an absolute node path work identically under
         // cmd.exe, PowerShell and Git Bash, which is what Claude Code may use.
-        command: `node "${hookScript}"`,
+        command: hookCommand(hookScript),
         timeout: HOOK_TIMEOUT_SECONDS,
       },
     ],

@@ -127,6 +127,7 @@ function computeToolSubagentSpans(events: readonly EventRow[], options: AgentOpt
     pushSliced(spans, {
       bucket: 'agent',
       source: 'subagent',
+      host: event.host,
       project_id: event.project_id,
       session_id: event.session_id,
       agent_id: event.agent_id,
@@ -183,6 +184,11 @@ function computeSubagentSpans(events: readonly EventRow[], options: AgentOptions
   // Events arrive in chronological order, so one pass pairs them.
   const open = new Map<string, EventRow[]>();
   const pairs: Array<{ start: EventRow; stop: EventRow | null }> = [];
+  // Cursor (and hosts like it) can emit SubagentStop with duration_ms and no
+  // matching Start. Inventing a start without a duration would invent billable
+  // time; measuring backward from a known duration is the same shape as
+  // PostToolUse and is safe.
+  const orphanStops: EventRow[] = [];
 
   for (const event of events) {
     if (!event.agent_id) continue;
@@ -193,11 +199,9 @@ function computeSubagentSpans(events: readonly EventRow[], options: AgentOptions
       if (queue) queue.push(event);
       else open.set(key, [event]);
     } else if (event.event_type === 'SubagentStop') {
-      // A stop with nothing open is an orphan — the run began before this
-      // window, or its start was never recorded. There is no start to measure
-      // from, so inventing one would invent billable time.
       const started = open.get(agentKey(event))?.shift();
       if (started) pairs.push({ start: started, stop: event });
+      else if (event.duration_ms !== null && event.duration_ms > 0) orphanStops.push(event);
     }
   }
 
@@ -241,6 +245,7 @@ function computeSubagentSpans(events: readonly EventRow[], options: AgentOptions
     pushSliced(spans, {
       bucket: 'agent',
       source: 'subagent',
+      host: event.host,
       project_id: event.project_id,
       session_id: event.session_id,
       agent_id: event.agent_id,
@@ -248,6 +253,30 @@ function computeSubagentSpans(events: readonly EventRow[], options: AgentOptions
       title: taskLabel ?? titles.titleAt(event.session_id, start),
       title_source: taskLabel ? 'task' : 'session_title',
       truncated,
+      start,
+      end,
+      offsetMin: event.tz_offset_min,
+    });
+  }
+
+  for (const event of orphanStops) {
+    const end = toMs(event.ts_utc);
+    const start = Math.max(end - event.duration_ms!, end - maxMs);
+    if (end <= start) continue;
+
+    const taskLabel = labelAt(options.tasks, event.session_id, start);
+
+    pushSliced(spans, {
+      bucket: 'agent',
+      source: 'subagent',
+      host: event.host,
+      project_id: event.project_id,
+      session_id: event.session_id,
+      agent_id: event.agent_id,
+      agent_type: event.agent_type,
+      title: taskLabel ?? titles.titleAt(event.session_id, start),
+      title_source: taskLabel ? 'task' : 'session_title',
+      truncated: event.duration_ms! > maxMs ? 'max_span' : null,
       start,
       end,
       offsetMin: event.tz_offset_min,
@@ -319,6 +348,7 @@ function computeMainTurnSpans(events: readonly EventRow[], options: AgentOptions
       pushSliced(spans, {
         bucket: 'agent',
         source: 'main_turn',
+        host: prompt.host,
         project_id: prompt.project_id,
         session_id: prompt.session_id,
         agent_id: null,
@@ -370,6 +400,7 @@ function titleIndex(events: readonly EventRow[]) {
 interface PendingSpan {
   bucket: Span['bucket'];
   source: Span['source'];
+  host: Span['host'];
   project_id: number;
   session_id: string;
   agent_id: string | null;
@@ -388,6 +419,7 @@ function pushSliced(target: Span[], pending: PendingSpan): void {
     target.push({
       bucket: pending.bucket,
       source: pending.source,
+      host: pending.host,
       project_id: pending.project_id,
       session_id: pending.session_id,
       agent_id: pending.agent_id,

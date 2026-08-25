@@ -40,6 +40,13 @@ export function isTrackedEvent(value: unknown): value is TrackedEvent {
   return typeof value === 'string' && (TRACKED_EVENTS as readonly string[]).includes(value);
 }
 
+/** Which coding agent emitted the event — Claude Code or Cursor. */
+export type ToolHost = 'claude' | 'cursor';
+
+export function isToolHost(value: unknown): value is ToolHost {
+  return value === 'claude' || value === 'cursor';
+}
+
 /**
  * One line of the NDJSON spool. Keys are deliberately terse.
  *
@@ -82,12 +89,15 @@ export interface SpoolRecord {
    */
   tsub: string | null;
   /**
-   * Tool duration in ms (PostToolUse only).
+   * Tool / subagent duration in ms (`PostToolUse`, or `SubagentStop` when the
+   * host reports it — Cursor does).
    *
    * A subagent span derived from this needs no start event, which matters
-   * because SubagentStart never arrives.
+   * because SubagentStart never arrives on some hosts.
    */
   dur: number | null;
+  /** Host that captured the event. Short key to keep lines small. */
+  h?: ToolHost;
 }
 
 /** A row of `events` as read back from SQLite. */
@@ -115,6 +125,8 @@ export interface EventRow {
    * but a billing record must be able to tell them apart.
    */
   source: EventSource;
+  /** Claude Code or Cursor — set at capture, carried into spans. */
+  host: ToolHost;
   payload_json: string;
   ingested_at: string;
 }
@@ -160,18 +172,20 @@ export interface ManualEntryRow {
 }
 
 /**
- * A window where automatic capture is known wrong: a subagent dispatched into
- * an outage sits retrying under the hood, then reports back through an
- * ordinary successful tool call whose `duration_ms` covers the whole stretch —
- * there is nothing in the hook payload that tells that time apart from real
- * work. This is the correction: it carves agent time on its own project only,
- * for exactly the window given, and adds nothing back. Unlike a manual entry
- * it is not "you, present, on one thing", so it never touches focus and never
- * competes with other projects for exclusivity.
+ * A window where automatic capture is known wrong — a subagent dispatched into
+ * an outage sits retrying under the hood then reports back through an
+ * ordinary successful tool call whose `duration_ms` covers the whole stretch
+ * (agent), or a stray `UserPromptSubmit` attributed a prompt gap to the wrong
+ * project (focus). This is the correction: it carves the given `bucket` on
+ * its own project only, for exactly the window given, and adds nothing back.
+ * Unlike a manual entry it is not "you, present, on one thing", so it never
+ * touches the *other* bucket and never competes with other projects for
+ * exclusivity.
  */
 export interface ExcludedSpanRow {
   id: number;
   project_id: number;
+  bucket: 'focus' | 'agent';
   start_utc: string;
   end_utc: string;
   tz_offset_min: number;
@@ -203,6 +217,7 @@ export type TruncationReason = 'idle_timeout' | 'max_span' | 'open';
 export interface Span {
   bucket: Bucket;
   source: SpanSource;
+  host: ToolHost;
   project_id: number;
   session_id: string;
   agent_id: string | null;

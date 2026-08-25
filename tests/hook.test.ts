@@ -204,4 +204,127 @@ describe.skipIf(!BUILT)('hook binary', () => {
     // Small enough that concurrent appends stay atomic.
     expect(lines[0]!.length).toBeLessThan(600);
   });
+
+  it('maps Cursor beforeSubmitPrompt onto UserPromptSubmit', () => {
+    const result = runHook({
+      conversation_id: 'conv-1',
+      generation_id: 'gen-1',
+      hook_event_name: 'beforeSubmitPrompt',
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      prompt: 'fix the auth flow',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    const lines = spoolLines();
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0]!) as {
+      e: string;
+      sid: string;
+      pid: string;
+      plen: number;
+      cwd: string;
+      h: string;
+    };
+    expect(record.e).toBe('UserPromptSubmit');
+    expect(record.sid).toBe('conv-1');
+    expect(record.pid).toBe('gen-1');
+    expect(record.plen).toBe('fix the auth flow'.length);
+    expect(record.cwd.toLowerCase()).toContain(path.basename(projectDir).toLowerCase());
+    expect(record.h).toBe('cursor');
+  });
+
+  it('maps Cursor subagentStop duration onto the spool', () => {
+    runHook({
+      conversation_id: 'conv-2',
+      hook_event_name: 'subagentStop',
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      subagent_id: 'sa-9',
+      subagent_type: 'explore',
+      duration_ms: 45_000,
+      status: 'completed',
+    });
+
+    const record = JSON.parse(spoolLines()[0]!) as {
+      e: string;
+      aid: string;
+      at: string;
+      dur: number;
+      r: string;
+    };
+    expect(record.e).toBe('SubagentStop');
+    expect(record.aid).toBe('sa-9');
+    expect(record.at).toBe('explore');
+    expect(record.dur).toBe(45_000);
+    expect(record.r).toBe('completed');
+  });
+
+  it('maps Cursor postToolUse duration field onto PostToolUse', () => {
+    runHook({
+      conversation_id: 'conv-3',
+      hook_event_name: 'postToolUse',
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      tool_name: 'Task',
+      tool_use_id: 'tu-1',
+      tool_input: { subagent_type: 'generalPurpose' },
+      duration: 12_000,
+    });
+
+    const record = JSON.parse(spoolLines()[0]!) as {
+      e: string;
+      aid: string;
+      at: string;
+      dur: number;
+    };
+    expect(record.e).toBe('PostToolUse');
+    expect(record.aid).toBe('tu-1');
+    expect(record.at).toBe('generalPurpose');
+    expect(record.dur).toBe(12_000);
+  });
+
+  it('reads --payload file used by the Windows Cursor wrapper', () => {
+    const payloadFile = path.join(dataDir, 'payload.json');
+    writeFileSync(
+      payloadFile,
+      JSON.stringify({
+        conversation_id: 'conv-payload',
+        hook_event_name: 'beforeSubmitPrompt',
+        workspace_roots: [projectDir.replace(/\\/g, '/')],
+        prompt: 'from temp file',
+      }),
+      'utf8',
+    );
+
+    const result = spawnSync(process.execPath, [HOOK, '--payload', payloadFile], {
+      encoding: 'utf8',
+      env: { ...process.env, TRAICKER_DATA_DIR: dataDir, CLAUDE_PROJECT_DIR: '' },
+      timeout: 10_000,
+    });
+
+    expect(result.status).toBe(0);
+    const record = JSON.parse(spoolLines()[0]!) as { e: string; sid: string; plen: number };
+    expect(record.e).toBe('UserPromptSubmit');
+    expect(record.sid).toBe('conv-payload');
+    expect(record.plen).toBe('from temp file'.length);
+  });
+
+  it('attributes Cursor sessions to workspace_roots, not live cwd', () => {
+    const elsewhere = mkdtempSync(path.join(tmpdir(), 'traicker-elsewhere-'));
+    mkdirSync(path.join(elsewhere, '.git'), { recursive: true });
+
+    const result = runHook({
+      conversation_id: 'conv-4',
+      hook_event_name: 'beforeSubmitPrompt',
+      cwd: elsewhere.replace(/\\/g, '/'),
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      prompt: 'look next door',
+    });
+
+    expect(result.status).toBe(0);
+    const record = JSON.parse(spoolLines()[0]!) as { cwd: string };
+    expect(record.cwd.toLowerCase()).toContain(path.basename(projectDir).toLowerCase());
+    expect(record.cwd.toLowerCase()).not.toContain(path.basename(elsewhere).toLowerCase());
+
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
 });

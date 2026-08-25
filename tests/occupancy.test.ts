@@ -20,6 +20,7 @@ function span(
   return {
     bucket,
     source,
+    host: 'claude',
     project_id: 1,
     session_id: 's1',
     agent_id: null,
@@ -96,6 +97,16 @@ describe('computeOccupancySpans', () => {
     );
 
     expect(result[0]!.title).toBe('Build payments API');
+  });
+
+  it('builds occupancy separately per host', () => {
+    const measured = [
+      span('focus', 'prompt_gap', 0, 10, { host: 'claude' }),
+      span('focus', 'prompt_gap', 0, 20, { host: 'cursor', project_id: 1 }),
+    ];
+    const result = computeOccupancySpans(measured, OPTS);
+    expect(result).toHaveLength(2);
+    expect(result.map((s) => s.host).sort()).toEqual(['claude', 'cursor']);
   });
 
   it('never folds a previous occupancy pass back into itself', () => {

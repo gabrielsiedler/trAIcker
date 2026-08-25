@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -12,8 +12,10 @@ import {
   type TimelineSpan,
 } from '../api.js';
 import { axisTicks } from '../axis.js';
+import { HostMark } from './HostMark.js';
 
 export type BillableFilter = 'billable' | 'other' | 'all';
+export type TimelineHost = 'claude' | 'cursor';
 
 interface Props {
   spans: TimelineSpan[];
@@ -34,9 +36,17 @@ const CHART_WIDTH = 900;
 const FOCUS_HEIGHT = 16;
 const AGENT_HEIGHT = 7;
 const AGENT_GAP = 2;
-const PROJECT_GAP = 18;
+/** Room between the two agents of one project, and between projects. */
+const HOST_GAP = 12;
+const PROJECT_GAP = 24;
+/** Strip of the left margin reserved for the per-agent mark, right of the project name. */
+const HOST_GUTTER = 20;
+const MARK_SIZE = 13;
 const AXIS_HEIGHT = 26;
 const PLOT_WIDTH = CHART_WIDTH - LABEL_WIDTH - RIGHT_PAD;
+/** Claude on top, always — a project's two sub-rows must not swap order between days. */
+const HOST_ORDER: TimelineHost[] = ['claude', 'cursor'];
+const HOST_LABEL: Record<TimelineHost, string> = { claude: 'Claude Code', cursor: 'Cursor' };
 
 /** Below this a zoomed-in window stops meaning anything — spans this short can't be told apart at 900px anyway. */
 const MIN_WINDOW_MS = 60_000;
@@ -81,6 +91,13 @@ function packLanes(spans: TimelineSpan[]): { packed: PackedSpan[]; laneCount: nu
   return { packed, laneCount: Math.max(laneEnds.length, 1) };
 }
 
+/** Total focus blocks a project has across every agent — the "busiest first" key. */
+function focusCount(hosts: Map<TimelineHost, { focus: TimelineSpan[] }>): number {
+  let n = 0;
+  for (const buckets of hosts.values()) n += buckets.focus.length;
+  return n;
+}
+
 /** How often the now-line moves. A minute of drift is invisible at 900px across a day's worth of hours. */
 const NOW_TICK_MS = 30_000;
 
@@ -106,6 +123,7 @@ function fromLocalInput(value: string): Date {
 }
 
 export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
+  const clipId = useId().replace(/:/g, '');
   const [hovered, setHovered] = useState<TimelineSpan | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -116,9 +134,10 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
   const [view, setView] = useState<View | null>(null);
   const [panning, setPanning] = useState(false);
 
-  // The agent span picked to correct — only agent blocks are clickable, since
-  // an exclusion only ever cuts the agent bucket (see excluded_spans and
-  // `traicker exclude`). Independent of `hovered`, which is transient.
+  // The focus or agent span picked to correct — billable-envelope blocks
+  // aren't clickable, since an exclusion only ever cuts one of the two
+  // measured buckets (see excluded_spans and `traicker exclude`). Independent
+  // of `hovered`, which is transient.
   const [selected, setSelected] = useState<TimelineSpan | null>(null);
   // Prefilled to the clicked block's own bounds, but editable — the block's
   // duration is usually not exactly how much was wrong (an outage might only
@@ -174,6 +193,7 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
     try {
       await api.addExclusion({
         projectId: selected.project_id,
+        bucket: selected.bucket === 'focus' ? 'focus' : 'agent',
         startUtc: new Date(startMs).toISOString(),
         endUtc: new Date(endMs).toISOString(),
         note: excludeNote || undefined,
@@ -219,35 +239,39 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
     const domainStart = Math.floor(Math.min(...starts) / 3_600_000) * 3_600_000;
     const domainEnd = Math.ceil(Math.max(...ends) / 3_600_000) * 3_600_000;
 
+    interface HostBuckets {
+      focus: TimelineSpan[];
+      agent: TimelineSpan[];
+      billable: TimelineSpan[];
+    }
+
     const byProject = new Map<
       number,
       {
         name: string;
         isBillable: boolean;
         color: string | null;
-        focus: TimelineSpan[];
-        agent: TimelineSpan[];
-        billable: TimelineSpan[];
+        // One entry per agent that actually ran here. A project driven from
+        // Claude Code only never grows an empty Cursor sub-row.
+        hosts: Map<TimelineHost, HostBuckets>;
       }
     >();
     for (const s of visible) {
       let entry = byProject.get(s.project_id);
       if (!entry) {
-        entry = {
-          name: s.project_name,
-          isBillable: s.billable === 1,
-          color: s.color,
-          focus: [],
-          agent: [],
-          billable: [],
-        };
+        entry = { name: s.project_name, isBillable: s.billable === 1, color: s.color, hosts: new Map() };
         byProject.set(s.project_id, entry);
+      }
+      let buckets = entry.hosts.get(s.host);
+      if (!buckets) {
+        buckets = { focus: [], agent: [], billable: [] };
+        entry.hosts.set(s.host, buckets);
       }
       // Occupancy is a derived envelope, not a third kind of work — it must not
       // be packed into the agent lanes or it would fake extra concurrency.
-      if (s.bucket === 'focus') entry.focus.push(s);
-      else if (s.bucket === 'occupancy') entry.billable.push(s);
-      else entry.agent.push(s);
+      if (s.bucket === 'focus') buckets.focus.push(s);
+      else if (s.bucket === 'occupancy') buckets.billable.push(s);
+      else buckets.agent.push(s);
     }
 
     let y = 0;
@@ -256,30 +280,53 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
     const rows = [...byProject.entries()]
       .sort((a, b) => {
         if (a[1].isBillable !== b[1].isBillable) return a[1].isBillable ? -1 : 1;
-        return b[1].focus.length - a[1].focus.length;
+        return focusCount(b[1].hosts) - focusCount(a[1].hosts);
       })
       .map(([projectId, entry]) => {
-        const { packed, laneCount } = packLanes(entry.agent);
-        const height = FOCUS_HEIGHT + 4 + laneCount * (AGENT_HEIGHT + AGENT_GAP);
+        let offset = 0;
+        const hosts = HOST_ORDER.filter((h) => entry.hosts.has(h)).map((h, index) => {
+          const buckets = entry.hosts.get(h) as HostBuckets;
+          const { packed, laneCount } = packLanes(buckets.agent);
+          const height = FOCUS_HEIGHT + 4 + laneCount * (AGENT_HEIGHT + AGENT_GAP);
+          // The rule sits in the middle of the gap it opened, so it reads as
+          // "these two belong to the same project but are different agents",
+          // not as a project boundary.
+          const dividerY = index === 0 ? null : y + offset + HOST_GAP / 2;
+          if (index > 0) offset += HOST_GAP;
+          const hostRow = {
+            host: h,
+            focus: buckets.focus,
+            billable: buckets.billable,
+            packed,
+            laneCount,
+            dividerY,
+            y: y + offset,
+            height,
+          };
+          offset += height;
+          return hostRow;
+        });
+
         // The billable envelope, not focus or agent wall time alone — it is the
         // same total the invoice is built from, so the label under the name
         // answers "how much of this day" with the number that actually counts.
-        const total = entry.billable.reduce((sum, s) => sum + s.duration_ms, 0);
+        // Summed across both agents: the invoice does not care which one ran.
+        const total = hosts.reduce(
+          (sum, h) => sum + h.billable.reduce((inner, s) => inner + s.duration_ms, 0),
+          0,
+        );
         const row = {
           projectId,
           name: entry.name,
           isBillable: entry.isBillable,
           color: entry.color,
-          focus: entry.focus,
-          billable: entry.billable,
-          packed,
-          laneCount,
+          hosts,
           total,
           cost: costByProject.get(projectId) ?? null,
           y,
-          height,
+          height: offset,
         };
-        y += height + PROJECT_GAP;
+        y += offset + PROJECT_GAP;
         return row;
       });
 
@@ -443,32 +490,65 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
         onDoubleClick={resetView}
       >
         <defs>
-          <clipPath id="timeline-plot-clip">
+          <clipPath id={clipId}>
             <rect x={LABEL_WIDTH} y={0} width={PLOT_WIDTH} height={model.height} />
           </clipPath>
         </defs>
 
         {/* Row labels live outside the clip — they're the one thing that must
-            stay put in the left margin no matter how far the plot is panned. */}
+            stay put in the left margin no matter how far the plot is panned.
+            The per-agent mark rides along here: it labels a sub-row, so it has
+            to hold its place while the bars pan under it. */}
         {model.rows.map((row) => (
           <g key={`label-${row.projectId}`} className={row.isBillable ? '' : 'lane-other'}>
-            <text x={LABEL_WIDTH - 10} y={row.y + FOCUS_HEIGHT - 3} className="row-label" textAnchor="end">
+            <text x={LABEL_WIDTH - HOST_GUTTER - 6} y={row.y + FOCUS_HEIGHT - 3} className="row-label" textAnchor="end">
               {row.name}
             </text>
             {row.total > 0 && (
-              <text x={LABEL_WIDTH - 10} y={row.y + FOCUS_HEIGHT + 9} className="row-total" textAnchor="end">
+              <text
+                x={LABEL_WIDTH - HOST_GUTTER - 6}
+                y={row.y + FOCUS_HEIGHT + 9}
+                className="row-total"
+                textAnchor="end"
+              >
                 {formatDuration(row.total)}
               </text>
             )}
             {row.cost !== null && (
-              <text x={LABEL_WIDTH - 10} y={row.y + FOCUS_HEIGHT + 20} className="row-cost" textAnchor="end">
+              <text
+                x={LABEL_WIDTH - HOST_GUTTER - 6}
+                y={row.y + FOCUS_HEIGHT + 20}
+                className="row-cost"
+                textAnchor="end"
+              >
                 {formatCost(row.cost)}
               </text>
             )}
+            {row.hosts.map((hostRow) => (
+              <g key={`h-${hostRow.host}`}>
+                {/* Only from the second agent on — a single-agent project gets
+                    no rule under nothing. */}
+                {hostRow.dividerY !== null && (
+                  <line
+                    x1={LABEL_WIDTH - HOST_GUTTER}
+                    x2={CHART_WIDTH - RIGHT_PAD}
+                    y1={hostRow.dividerY}
+                    y2={hostRow.dividerY}
+                    className="host-divider"
+                  />
+                )}
+                <g transform={`translate(${LABEL_WIDTH - HOST_GUTTER}, ${hostRow.y + (FOCUS_HEIGHT - MARK_SIZE) / 2})`}>
+                  {/* First child, so it is the one the browser reads as the
+                      hover title for the mark. */}
+                  <title>{`${row.name} — ${HOST_LABEL[hostRow.host]}`}</title>
+                  <HostMark host={hostRow.host} size={MARK_SIZE} />
+                </g>
+              </g>
+            ))}
           </g>
         ))}
 
-        <g clipPath="url(#timeline-plot-clip)">
+        <g clipPath={`url(#${clipId})`}>
           {ticks.map((tick) => (
             <g key={tick.at}>
               <line
@@ -492,20 +572,26 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
 
           {model.rows.map((row) => {
             const color = projectColor(row.projectId, row.color);
-            return (
-              <g key={row.projectId} className={row.isBillable ? 'lane lane-billable' : 'lane lane-other'}>
+            // One sub-row per agent. They share the project's colour on
+            // purpose — colour is still the project, and the mark in the left
+            // gutter is what says which agent a sub-row belongs to.
+            return row.hosts.map((hostRow) => (
+              <g
+                key={`${row.projectId}-${hostRow.host}`}
+                className={row.isBillable ? 'lane lane-billable' : 'lane lane-other'}
+              >
                 {/* Billable envelope: drawn behind everything, so the extent of
                     what gets invoiced is visible against what produced it. */}
-                {row.billable.map((s, i) => {
+                {hostRow.billable.map((s, i) => {
                   const x1 = x(Date.parse(s.start_utc));
                   const x2 = x(Date.parse(s.end_utc));
                   return (
                     <rect
                       key={`b${i}`}
                       x={x1}
-                      y={row.y - 3}
+                      y={hostRow.y - 3}
                       width={Math.max(x2 - x1, 1.5)}
-                      height={row.height + 3}
+                      height={hostRow.height + 3}
                       rx={3}
                       fill={color}
                       className="span billable-span"
@@ -515,34 +601,58 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
                   );
                 })}
 
-                {/* Focus: solid and prominent. Never overlaps another project. */}
-                {row.focus.map((s, i) => {
+                {/* Focus: solid and prominent. Never overlaps another project.
+                    Clickable, same as agent below — a prompt gap can be
+                    attributed to the wrong project just as an agent block can
+                    run long, and both corrections use the same exclusion
+                    mechanism, scoped to their own bucket. */}
+                {hostRow.focus.map((s, i) => {
                   const x1 = x(Date.parse(s.start_utc));
                   const x2 = x(Date.parse(s.end_utc));
+                  const visibleWidth = Math.max(x2 - x1, 1.5);
+                  // Same padded hit target as the agent blocks below — a focus
+                  // span narrowed by a previous exclusion can end up just as
+                  // thin.
+                  const hitWidth = Math.max(visibleWidth, 8);
+                  const hitX = x1 - (hitWidth - visibleWidth) / 2;
                   return (
-                    <rect
-                      key={`f${i}`}
-                      x={x1}
-                      y={row.y}
-                      width={Math.max(x2 - x1, 1.5)}
-                      height={FOCUS_HEIGHT}
-                      rx={2}
-                      fill={color}
-                      className="span focus-span"
-                      onMouseEnter={() => setHovered(s)}
-                      onMouseLeave={() => setHovered(null)}
-                    />
+                    <g key={`f${i}`}>
+                      <rect
+                        x={hitX}
+                        y={hostRow.y - 3}
+                        width={hitWidth}
+                        height={FOCUS_HEIGHT + 6}
+                        fill="transparent"
+                        className="span-hit"
+                        onMouseEnter={() => setHovered(s)}
+                        onMouseLeave={() => setHovered(null)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openExclude(s);
+                        }}
+                      />
+                      <rect
+                        x={x1}
+                        y={hostRow.y}
+                        width={visibleWidth}
+                        height={FOCUS_HEIGHT}
+                        rx={2}
+                        fill={color}
+                        className={`span focus-span excludable ${hovered === s ? 'span-hovered' : ''}`}
+                        pointerEvents="none"
+                      />
+                    </g>
                   );
                 })}
 
                 {/* Agent: translucent, stacked. Height shows real concurrency.
-                    Clickable — only agent blocks, since an exclusion only
-                    ever corrects the agent bucket. */}
-                {row.packed.map(({ span: s, lane }, i) => {
+                    Clickable, same exclusion mechanism as focus above,
+                    scoped to the agent bucket. */}
+                {hostRow.packed.map(({ span: s, lane }, i) => {
                   const x1 = x(Date.parse(s.start_utc));
                   const x2 = x(Date.parse(s.end_utc));
                   const visibleWidth = Math.max(x2 - x1, 1.5);
-                  const laneY = row.y + FOCUS_HEIGHT + 4 + lane * (AGENT_HEIGHT + AGENT_GAP);
+                  const laneY = hostRow.y + FOCUS_HEIGHT + 4 + lane * (AGENT_HEIGHT + AGENT_GAP);
                   // A block already narrowed down to a minute or less (the
                   // leftover of a previous cut, say) can render as little as
                   // 1.5px wide — wide enough to see, not wide enough to hit
@@ -584,7 +694,7 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
                   );
                 })}
               </g>
-            );
+            ));
           })}
 
           {nowX !== null && <line x1={nowX} x2={nowX} y1={0} y2={model.height - AXIS_HEIGHT} className="now-line" />}
@@ -601,7 +711,13 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
         <span>
           <i className="key agent-key" /> agent — one lane per concurrent run
         </span>
-        <span className="legend-note">colour = project</span>
+        <span className="legend-host">
+          <HostMark host="claude" /> Claude Code
+        </span>
+        <span className="legend-host">
+          <HostMark host="cursor" /> Cursor
+        </span>
+        <span className="legend-note">colour = project · mark = agent</span>
         <span className="legend-note">scroll to zoom · drag to pan</span>
       </div>
 
@@ -610,13 +726,13 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
       {selected ? (
         <div className="tooltip visible exclude-panel">
           <div className="exclude-head">
-            <strong>Remove agent time</strong>
+            <strong>Remove {selected.bucket === 'focus' ? 'focus' : 'agent'} time</strong>
             <button type="button" className="exclude-close" onClick={cancelExclude} aria-label="Cancel">
               ×
             </button>
           </div>
           <span>
-            {selected.project_name} · {selected.title ?? '(untitled)'} · block was{' '}
+            {selected.project_name} · {HOST_LABEL[selected.host]} · {selected.title ?? '(untitled)'} · block was{' '}
             {formatDuration(selected.duration_ms)}
           </span>
           <div className="exclude-range">
@@ -675,13 +791,13 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
             <>
               <strong>{hovered.title ?? '(untitled)'}</strong>
               <span>
-                {hovered.project_name} · {hovered.bucket} · {hovered.source}
+                {hovered.project_name} · {HOST_LABEL[hovered.host]} · {hovered.bucket} · {hovered.source}
                 {hovered.agent_type ? ` · ${hovered.agent_type}` : ''}
               </span>
               <span>
                 {localTime(hovered.start_utc)} → {localTime(hovered.end_utc)} ({formatDuration(hovered.duration_ms)})
                 {hovered.truncated_by ? ` · cut: ${hovered.truncated_by}` : ''}
-                {hovered.bucket === 'agent' ? ' · click to exclude' : ''}
+                {hovered.bucket === 'agent' || hovered.bucket === 'focus' ? ' · click to exclude' : ''}
               </span>
             </>
           )}

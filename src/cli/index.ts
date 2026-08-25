@@ -12,6 +12,14 @@ import { parseDay, parseDuration, parseTimeOfDay, toUtc } from '../core/parse.js
 import { formatDuration, localDay, localOffsetMinutes } from '../core/time.js';
 import { MANUAL_KINDS, TRACKED_EVENTS, isManualKind } from '../core/types.js';
 import { applyInstall, hookScriptPath, planInstall, planUninstall, settingsPath } from '../install/hooks.js';
+import {
+  applyCursorInstall,
+  CURSOR_TRACKED_EVENTS,
+  cursorHooksPath,
+  planCursorInstall,
+  planCursorUninstall,
+} from '../install/cursor-hooks.js';
+import { installDshPlugin, uninstallDshPlugin } from '../install/dsh.js';
 import { aggregate } from '../aggregate/run.js';
 import { reproject } from '../ingest/index.js';
 import { recover } from '../ingest/recover.js';
@@ -54,7 +62,7 @@ const USAGE = `trAIcker — passive time tracking for agent orchestration
   traicker add --project X ...        Log time spent off the tools
   traicker entries [range]            List manual entries
   traicker rm <id>                    Delete a manual entry
-  traicker exclude --project X ...    Correct agent time capture is known wrong
+  traicker exclude --project X ...    Correct focus or agent time capture known wrong
   traicker excluded [range]           List exclusions
   traicker unexclude <id>             Delete an exclusion
   traicker week                       Weekly progress against caps and targets
@@ -72,8 +80,12 @@ const USAGE = `trAIcker — passive time tracking for agent orchestration
   traicker reproject                  Re-attribute history after a config change
   traicker doctor                     Prove the capture path works end to end
   traicker status                     Health check
-  traicker install-hooks [--project] [--dry-run]
+  traicker install-hooks [--project] [--dry-run]          Claude Code (~/.claude/settings.json)
   traicker uninstall-hooks [--project]
+  traicker install-cursor-hooks [--project] [--dry-run]  Cursor Agent/CLI (~/.cursor/hooks.json)
+  traicker uninstall-cursor-hooks [--project]
+  traicker install-dsh [--project] [--dry-run]           Add the trAIcker plugin to DSH's cordis.yml
+  traicker uninstall-dsh [--project]                     Remove trAIcker from DSH's cordis.yml
 
 Ranges:
   --today (default) --yesterday --week --month --all
@@ -95,13 +107,16 @@ Manual entries (meetings, research — anything that emits no events):
   time on its own project so the same window is never billed twice. Agents on
   other projects keep counting — that work really happened.
 
-Exclusions (agent time that was captured but was not real work):
+Exclusions (focus or agent time that was captured but was not real work):
   traicker exclude --project vyrve --from 21:40 --to 23:10 --note "Opus outage, agent stuck retrying"
+  traicker exclude --project vyrve --bucket focus --from 9:00 --to 9:20 --note "prompt misattributed"
 
-  Only cuts agent time on that one project, for that window. Never touches
-  focus, never touches other projects, adds nothing back. Use this when a
-  subagent's tool call reports a long duration that was mostly the model
-  provider being down, not the agent working.
+  Only cuts one bucket (--bucket focus|agent, default agent) on that one
+  project, for that window. Never touches the other bucket, never touches
+  other projects, adds nothing back. Use agent for a subagent's tool call
+  reporting a long duration that was mostly the model provider being down,
+  not the agent working; use focus for a prompt gap attributed to the wrong
+  project.
 
 Timesheet billing rules live in ~/.traicker/config.json under
 projects["<path>"].billing — see config.example.json.
@@ -774,12 +789,14 @@ function rmCommand(args: Args): number {
  * Corrects the record when automatic capture is known wrong: a subagent
  * dispatched into a model outage sits retrying under the hood, then reports
  * back through an ordinary successful tool call whose `duration_ms` covers
- * the whole stretch. Nothing in the hook payload tells that time apart from
- * real work, so this is the only way to zero it out.
+ * the whole stretch (the `agent` bucket, the default); or a stray
+ * `UserPromptSubmit` attributed a prompt gap to the wrong project (the
+ * `focus` bucket, `--bucket focus`). Nothing in the hook payload tells either
+ * apart from real work, so this is the only way to zero it out.
  *
- * Unlike `add`, this never adds anything back and never touches focus or
- * other projects — it says "this captured window was not real work", not
- * "here is what I was doing instead".
+ * Unlike `add`, this never adds anything back and never touches the other
+ * bucket or other projects — it says "this captured window was not real
+ * work", not "here is what I was doing instead".
  */
 function excludeCommand(args: Args): number {
   const filter = args.values.get('project');
@@ -799,6 +816,13 @@ function excludeCommand(args: Args): number {
     console.error(`No project matching "${filter}". Try: traicker projects`);
     return 1;
   }
+
+  const bucketInput = args.values.get('bucket') ?? 'agent';
+  if (bucketInput !== 'focus' && bucketInput !== 'agent') {
+    console.error(`--bucket must be "focus" or "agent", got "${bucketInput}".`);
+    return 1;
+  }
+  const bucket = bucketInput;
 
   const offset = localOffsetMinutes();
   const dayInput = args.values.get('day') ?? (args.flags.has('yesterday') ? 'yesterday' : 'today');
@@ -845,9 +869,9 @@ function excludeCommand(args: Args): number {
   const startUtc = toUtc(day, fromMinutes, offset);
   const endUtc = toUtc(day, endMinutes, offset);
 
-  const overlaps = findExclusionOverlaps(db, project.id, startUtc, endUtc);
+  const overlaps = findExclusionOverlaps(db, project.id, bucket, startUtc, endUtc);
   if (overlaps.length > 0 && !args.flags.has('force')) {
-    console.error(`That window already overlaps an exclusion on ${project.name}:\n`);
+    console.error(`That window already overlaps a ${bucket} exclusion on ${project.name}:\n`);
     for (const conflict of overlaps) {
       console.error(
         `  #${conflict.entry.id}  ${conflict.entry.start_utc.slice(11, 16)}-${conflict.entry.end_utc.slice(11, 16)} UTC` +
@@ -861,6 +885,7 @@ function excludeCommand(args: Args): number {
   const note = args.values.get('note') ?? null;
   const entry = insertExclusion(db, {
     projectId: project.id,
+    bucket,
     startUtc,
     endUtc,
     tzOffsetMin: offset,
@@ -875,7 +900,7 @@ function excludeCommand(args: Args): number {
 
   const result = sync(db, config);
   console.log(`\nRebuilt ${result.aggregate.daysRebuilt.length} day(s).`);
-  console.log(`Agent time on ${project.name} is cut for this window. Nothing else changes.`);
+  console.log(`${bucket === 'focus' ? 'Focus' : 'Agent'} time on ${project.name} is cut for this window. Nothing else changes.`);
   return 0;
 }
 
@@ -896,7 +921,7 @@ function excludedCommand(args: Args): number {
 
   console.log(
     table(
-      ['ID', 'DAY', 'TIME', 'DUR', 'PROJECT', 'NOTE'],
+      ['ID', 'DAY', 'TIME', 'DUR', 'BUCKET', 'PROJECT', 'NOTE'],
       rows.map((r) => {
         const start = Date.parse(r.start_utc) + r.tz_offset_min * 60_000;
         const end = Date.parse(r.end_utc) + r.tz_offset_min * 60_000;
@@ -905,14 +930,15 @@ function excludedCommand(args: Args): number {
           new Date(start).toISOString().slice(0, 10),
           `${new Date(start).toISOString().slice(11, 16)}-${new Date(end).toISOString().slice(11, 16)}`,
           formatDuration(end - start),
+          r.bucket,
           r.project_name,
           r.note ?? '—',
         ];
       }),
-      ['left', 'left', 'left', 'right', 'left', 'left'],
+      ['left', 'left', 'left', 'right', 'left', 'left', 'left'],
     ),
   );
-  console.log('\nTimes are local. Agent time only — focus is never touched by an exclusion.');
+  console.log('\nTimes are local. Each exclusion cuts only its own bucket, on its own project.');
   return 0;
 }
 
@@ -1017,13 +1043,59 @@ function doctorCommand(): number {
   } catch {
     /* reported below */
   }
+  const claudeFull = registered.length === TRACKED_EVENTS.length;
+  const claudePartial = registered.length > 0 && !claudeFull;
   check(
-    'hooks registered',
-    registered.length === TRACKED_EVENTS.length,
-    `${registered.length}/${TRACKED_EVENTS.length}` +
-      (registered.length < TRACKED_EVENTS.length
-        ? ` missing: ${TRACKED_EVENTS.filter((e) => !registered.includes(e)).join(', ')}`
-        : ''),
+    'Claude Code hooks',
+    !claudePartial,
+    registered.length === 0
+      ? 'not installed (ok if you only use Cursor)'
+      : `${registered.length}/${TRACKED_EVENTS.length}` +
+          (claudePartial ? ` missing: ${TRACKED_EVENTS.filter((e) => !registered.includes(e)).join(', ')}` : ''),
+  );
+
+  const cursorSettings = cursorHooksPath('user');
+  let cursorRegistered: string[] = [];
+  try {
+    const parsed = JSON.parse(readFileSync(cursorSettings, 'utf8')) as { hooks?: Record<string, unknown> };
+    cursorRegistered = CURSOR_TRACKED_EVENTS.filter((event) => {
+      const entries = parsed.hooks?.[event];
+      return (
+        Array.isArray(entries) &&
+        entries.some(
+          (m) =>
+            typeof m === 'object' &&
+            m !== null &&
+            typeof (m as { command?: string }).command === 'string' &&
+            (m as { command: string }).command.includes('traicker'),
+        )
+      );
+    });
+  } catch {
+    /* reported below */
+  }
+  const cursorFull = cursorRegistered.length === CURSOR_TRACKED_EVENTS.length;
+  const cursorPartial = cursorRegistered.length > 0 && !cursorFull;
+  check(
+    'Cursor hooks',
+    !cursorPartial,
+    cursorRegistered.length === 0
+      ? 'not installed (ok if you only use Claude Code)'
+      : `${cursorRegistered.length}/${CURSOR_TRACKED_EVENTS.length}` +
+          (cursorPartial
+            ? ` missing: ${CURSOR_TRACKED_EVENTS.filter((e) => !cursorRegistered.includes(e)).join(', ')}`
+            : ''),
+  );
+  check(
+    'at least one host registered',
+    claudeFull || cursorFull,
+    claudeFull || cursorFull
+      ? claudeFull && cursorFull
+        ? 'Claude Code + Cursor'
+        : claudeFull
+          ? 'Claude Code'
+          : 'Cursor'
+      : 'run install-hooks and/or install-cursor-hooks',
   );
 
   // Run the real hook, on a real project path, and see whether a line appears.
@@ -1170,11 +1242,89 @@ function uninstall(args: Args): number {
   return 0;
 }
 
+function installCursor(args: Args): number {
+  const target = cursorHooksPath(args.flags.has('project') ? 'project' : 'user');
+  const plan = planCursorInstall(target, hookScriptPath());
+
+  console.log(`hooks:  ${plan.settingsPath}`);
+  console.log(`hook:   node "${plan.hookScript}"\n`);
+  console.log(`  added:     ${plan.added.join(', ') || '(none)'}`);
+  console.log(`  replaced:  ${plan.replaced.join(', ') || '(none)'}`);
+  console.log(`  unchanged: ${plan.unchanged.join(', ') || '(none)'}`);
+
+  if (plan.added.length === 0 && plan.replaced.length === 0) {
+    console.log('\nAlready up to date.');
+    return 0;
+  }
+
+  if (args.flags.has('dry-run')) {
+    console.log(`\n--- resulting hooks.json ---\n${plan.after}\nDry run: nothing written.`);
+    return 0;
+  }
+
+  const backup = applyCursorInstall(plan);
+  console.log(`\nWritten. ${backup ? `Backup: ${backup}` : 'No previous file to back up.'}`);
+  console.log('Restart any running Cursor Agent / CLI sessions to pick the hooks up.');
+  return 0;
+}
+
+function uninstallCursor(args: Args): number {
+  const plan = planCursorUninstall(cursorHooksPath(args.flags.has('project') ? 'project' : 'user'));
+  if (plan.replaced.length === 0) {
+    console.log('No trAIcker Cursor hooks found.');
+    return 0;
+  }
+  const backup = applyCursorInstall(plan);
+  console.log(`Removed from: ${plan.replaced.join(', ')}`);
+  if (backup) console.log(`Backup: ${backup}`);
+  return 0;
+}
+
 /** Commands that need to await I/O. Kept separate so the rest stay synchronous. */
 async function asyncMain(command: string, args: Args): Promise<number | null> {
   if (command === 'translate') return translateCommand(args);
   if (command === 'summarize' || command === 'summarise') return summarizeCommand(args);
   return null;
+}
+
+function installDshCommand(args: Args): number {
+  const config = loadConfig();
+  const dryRun = args.flags.has('dry-run');
+  const scope = args.flags.has('project') ? 'project' : 'user';
+  const result = installDshPlugin(config, { scope, dryRun });
+
+  console.log(`target: ${result.target}`);
+  console.log(`plugin: ${result.pluginPackage}\n`);
+
+  if (result.alreadyPresent) {
+    console.log('Already up to date.');
+    return 0;
+  }
+
+  if (dryRun) {
+    console.log(`\n--- resulting cordis.yml ---\n${result.after}\nDry run: nothing written.`);
+    return 0;
+  }
+
+  console.log(`\nWritten to ${result.target}.`);
+  if (result.backup) console.log(`Backup: ${result.backup}`);
+  console.log('Restart any running DSH session to pick the plugin up.');
+  return 0;
+}
+
+function uninstallDshCommand(args: Args): number {
+  const config = loadConfig();
+  const scope = args.flags.has('project') ? 'project' : 'user';
+  const result = uninstallDshPlugin(config, { scope });
+
+  if (!result.found) {
+    console.log('No trAIcker DSH plugin entry found.');
+    return 0;
+  }
+
+  console.log(`Removed from ${result.target}.`);
+  if (result.backup) console.log(`Backup: ${result.backup}`);
+  return 0;
 }
 
 function main(): number {
@@ -1228,6 +1378,14 @@ function main(): number {
       return install(args);
     case 'uninstall-hooks':
       return uninstall(args);
+    case 'install-cursor-hooks':
+      return installCursor(args);
+    case 'uninstall-cursor-hooks':
+      return uninstallCursor(args);
+    case 'install-dsh':
+      return installDshCommand(args);
+    case 'uninstall-dsh':
+      return uninstallDshCommand(args);
     case 'help':
     case '--help':
     case '-h':

@@ -94,13 +94,17 @@ export function aggregate(db: Db, config: TraickerConfig, options: AggregateOpti
   // because that work genuinely happened while you were in the call.
   const displaced = applyManualEntries(focus.spans, agentSpans, manualFocus);
 
-  // Corrections come last and touch agent time only: they say a stretch of
+  // Corrections come last and are scoped per bucket: each says a stretch of
   // captured time was never real work (a subagent stuck retrying through an
-  // outage, say), not that you were somewhere else. Nothing is added back.
-  const correctedAgent = applyExclusions(displaced.agent, exclusions);
+  // outage, or a prompt gap attributed to the wrong project), not that you
+  // were somewhere else. Nothing is added back.
+  const focusExclusions = exclusions.filter((e) => e.bucket === 'focus');
+  const agentExclusions = exclusions.filter((e) => e.bucket === 'agent');
+  const correctedFocus = applyExclusions(displaced.focus, focusExclusions);
+  const correctedAgent = applyExclusions(displaced.agent, agentExclusions);
 
   const rebuild = new Set(targetDays);
-  const measured = [...displaced.focus, ...manualFocus, ...correctedAgent].filter((s) =>
+  const measured = [...correctedFocus, ...manualFocus, ...correctedAgent].filter((s) =>
     rebuild.has(s.local_day),
   );
 
@@ -134,9 +138,9 @@ function writeAll(
   const deleteTopics = db.prepare('DELETE FROM daily_topics WHERE local_day = ?');
 
   const insertSpan = db.prepare(
-    `INSERT INTO spans (bucket, source, project_id, session_id, agent_id, agent_type, title, title_source,
+    `INSERT INTO spans (bucket, source, host, project_id, session_id, agent_id, agent_type, title, title_source,
                         local_day, start_utc, end_utc, duration_ms, truncated_by)
-     VALUES (@bucket, @source, @project_id, @session_id, @agent_id, @agent_type, @title, @title_source,
+     VALUES (@bucket, @source, @host, @project_id, @session_id, @agent_id, @agent_type, @title, @title_source,
              @local_day, @start_utc, @end_utc, @duration_ms, @truncated_by)`,
   );
   const insertSummary = db.prepare(

@@ -33,6 +33,7 @@ function event(
     task_subject: null,
     duration_ms: null,
     source: 'hook' as const,
+    host: 'claude' as const,
     payload_json: '{}',
     ingested_at: at,
     ...overrides,
@@ -43,6 +44,38 @@ const NOW = Date.parse('2026-08-10T20:00:00.000Z');
 const OPTS = { maxTurnMinutes: 120, maxSubagentMinutes: 120, now: NOW };
 
 describe('computeAgentSpans', () => {
+  it('builds a subagent span from an orphan SubagentStop that carries duration', () => {
+    // Cursor emits subagentStop with duration_ms even when subagentStart was
+    // missed. Measuring backward from a known duration is safe; inventing a
+    // start without one would invent billable time.
+    const spans = computeAgentSpans(
+      [
+        event('SubagentStop', '2026-08-10T12:30:00.000Z', {
+          agent_id: 'sa-1',
+          agent_type: 'explore',
+          duration_ms: 30 * MIN,
+          host: 'cursor',
+        }),
+      ],
+      OPTS,
+    );
+
+    const sub = spans.filter((s) => s.source === 'subagent');
+    expect(sub).toHaveLength(1);
+    expect(sub[0]!.host).toBe('cursor');
+    expect(sub[0]!.duration_ms).toBe(30 * MIN);
+    expect(sub[0]!.start_utc).toBe('2026-08-10T12:00:00.000Z');
+    expect(sub[0]!.agent_type).toBe('explore');
+  });
+
+  it('still ignores an orphan SubagentStop with no duration', () => {
+    const spans = computeAgentSpans(
+      [event('SubagentStop', '2026-08-10T12:30:00.000Z', { agent_id: 'sa-1', agent_type: 'explore' })],
+      OPTS,
+    );
+    expect(spans.filter((s) => s.source === 'subagent')).toHaveLength(0);
+  });
+
   it('builds a subagent span from the tool call duration', () => {
     // The reliable path. SubagentStart never fires, so pairing is impossible;
     // PostToolUse carries the duration and needs no pair.

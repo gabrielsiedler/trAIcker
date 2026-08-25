@@ -83,8 +83,8 @@ export function recover(db: Db, config: TraickerConfig, options: RecoverOptions 
     `INSERT OR IGNORE INTO events (
        event_uid, event_type, ts_utc, tz_offset_min, project_id, session_id,
        agent_id, agent_type, prompt_id, reason, session_title, prompt_chars,
-       prompt_excerpt, task_id, task_subject, duration_ms, source, payload_json, ingested_at
-     ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, NULL, NULL, NULL, 'transcript', ?, ?)`,
+       prompt_excerpt, task_id, task_subject, duration_ms, source, host, payload_json, ingested_at
+     ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, NULL, NULL, NULL, 'transcript', 'claude', ?, ?)`,
   );
 
   const run = db.transaction(() => {

@@ -4,6 +4,7 @@ import type { ExcludedSpanRow } from './types.js';
 
 export interface NewExclusion {
   projectId: number;
+  bucket: 'focus' | 'agent';
   startUtc: number;
   endUtc: number;
   tzOffsetMin: number;
@@ -16,15 +17,18 @@ export interface ExclusionOverlapConflict {
 
 /**
  * Existing exclusions that overlap a proposed window, on the *same* project
- * only.
+ * and *same* bucket only.
  *
  * Unlike a manual entry, an exclusion does not claim "you were here" — two
  * unrelated exclusions can legitimately cover the same minute on different
- * projects. Only the same project overlapping itself is a real duplicate.
+ * projects, or the same minute on the same project across different buckets
+ * (a focus misattribution and an agent outage can coincide). Only the same
+ * project and bucket overlapping itself is a real duplicate.
  */
 export function findExclusionOverlaps(
   db: Db,
   projectId: number,
+  bucket: 'focus' | 'agent',
   startUtc: number,
   endUtc: number,
   excludeId?: number,
@@ -32,11 +36,11 @@ export function findExclusionOverlaps(
   return db
     .prepare(
       `SELECT * FROM excluded_spans
-       WHERE project_id = ? AND start_utc < ? AND end_utc > ?
+       WHERE project_id = ? AND bucket = ? AND start_utc < ? AND end_utc > ?
          AND (? IS NULL OR id != ?)
        ORDER BY start_utc`,
     )
-    .all(projectId, toIso(endUtc), toIso(startUtc), excludeId ?? null, excludeId ?? null)
+    .all(projectId, bucket, toIso(endUtc), toIso(startUtc), excludeId ?? null, excludeId ?? null)
     .map((row) => ({ entry: row as ExcludedSpanRow }));
 }
 
@@ -44,10 +48,18 @@ export function insertExclusion(db: Db, entry: NewExclusion): ExcludedSpanRow {
   const now = new Date().toISOString();
   const info = db
     .prepare(
-      `INSERT INTO excluded_spans (project_id, start_utc, end_utc, tz_offset_min, note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO excluded_spans (project_id, bucket, start_utc, end_utc, tz_offset_min, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(entry.projectId, toIso(entry.startUtc), toIso(entry.endUtc), entry.tzOffsetMin, entry.note, now);
+    .run(
+      entry.projectId,
+      entry.bucket,
+      toIso(entry.startUtc),
+      toIso(entry.endUtc),
+      entry.tzOffsetMin,
+      entry.note,
+      now,
+    );
 
   return db.prepare('SELECT * FROM excluded_spans WHERE id = ?').get(info.lastInsertRowid) as ExcludedSpanRow;
 }

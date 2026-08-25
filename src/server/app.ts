@@ -10,11 +10,17 @@ import {
   configPath,
   isHexColor,
   loadConfig,
+  parseModelPricingEntry,
   type BillingConfig,
   type CommitmentConfig,
   type TraickerConfig,
 } from '../core/config.js';
-import { updateProjectConfig, type ProjectPatch } from '../core/config-writer.js';
+import {
+  deleteModelPricingEntry,
+  updateProjectConfig,
+  upsertModelPricingEntry,
+  type ProjectPatch,
+} from '../core/config-writer.js';
 import { listProjects, openDb, refreshProjectMetadata, type Db } from '../core/db.js';
 import { deleteExclusion, findExclusionOverlaps, insertExclusion, listExclusions } from '../core/exclude.js';
 import { deleteManualEntry, findOverlaps, insertManualEntry, listManualEntries } from '../core/manual.js';
@@ -31,6 +37,7 @@ import {
   resolveBilling,
   saveDayNote,
 } from '../report/timesheet.js';
+import { lookupModelPricing } from '../translate/pricing.js';
 import { clearDaySummary, saveDaySummary, summarizeDay } from '../translate/summarize.js';
 import { sync } from '../sync.js';
 
@@ -159,7 +166,85 @@ export function createApp(db: Db, initialConfig: TraickerConfig) {
       range,
       models,
       unpriced: [...new Set(models.filter((m) => m.cost_usd === null).map((m) => m.model))],
+      // Full history, not just the day-of rate: the dashboard's pricing editor
+      // shows and edits past entries too, since a config write must not lose
+      // the fact that a rate changed on a given day.
+      pricing: config.modelPricing,
     });
+  });
+
+  /**
+   * Writes one model's rate for one `effectiveFrom` day back to config.json —
+   * the dashboard equivalent of hand-editing `modelPricing` there. An upsert:
+   * resubmitting the same day replaces that entry rather than duplicating it.
+   */
+  app.post('/api/model-pricing', (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+
+    const model = typeof body['model'] === 'string' ? body['model'].trim() : '';
+    if (model.length === 0) {
+      res.status(400).json({ error: 'model is required' });
+      return;
+    }
+
+    const entry = parseModelPricingEntry(body);
+    if (!entry) {
+      res.status(400).json({
+        error: 'need effectiveFrom (YYYY-MM-DD), inputPerMillion and outputPerMillion (numbers >= 0)',
+      });
+      return;
+    }
+
+    try {
+      const backup = upsertModelPricingEntry(model, entry);
+      config = loadConfig();
+      configMtime = configFileMtime();
+      res.json({ ok: true, backup, entry });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** Drops one rate. Past estimated costs already computed and shown elsewhere are not retroactively changed by this — cost is always recomputed live from whatever pricing currently exists. */
+  app.delete('/api/model-pricing', (req: Request, res: Response) => {
+    const model = typeof req.query['model'] === 'string' ? req.query['model'] : '';
+    const effectiveFrom = typeof req.query['effectiveFrom'] === 'string' ? req.query['effectiveFrom'] : '';
+    if (model.length === 0 || effectiveFrom.length === 0) {
+      res.status(400).json({ error: 'model and effectiveFrom are required' });
+      return;
+    }
+
+    try {
+      const backup = deleteModelPricingEntry(model, effectiveFrom);
+      config = loadConfig();
+      configMtime = configFileMtime();
+      res.json({ ok: true, backup });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /**
+   * Asks an LLM, with web search, to find a model's current pricing — fills
+   * in the numbers a click would otherwise require looking up by hand.
+   * Nothing is written here: `found: false` and a transport failure both come
+   * back as a result for the dashboard to show, and only `POST
+   * /api/model-pricing` above commits anything to disk.
+   */
+  app.post('/api/model-pricing/lookup', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const model = typeof body['model'] === 'string' ? body['model'].trim() : '';
+    if (model.length === 0) {
+      res.status(400).json({ error: 'model is required' });
+      return;
+    }
+
+    const result = await lookupModelPricing(config, model);
+    if (result.error) {
+      res.status(502).json({ error: result.error });
+      return;
+    }
+    res.json(result);
   });
 
   /**
@@ -414,9 +499,9 @@ export function createApp(db: Db, initialConfig: TraickerConfig) {
   });
 
   /**
-   * Corrects agent time capture that is known wrong (an agent stuck retrying
-   * through an outage, for example) — cuts the agent bucket only, in the
-   * exclusion's own project, and never touches focus. See `traicker exclude`,
+   * Corrects capture that is known wrong — an agent stuck retrying through an
+   * outage, or a prompt gap attributed to the wrong project — cutting one
+   * bucket only, in the exclusion's own project. See `traicker exclude`,
    * which this mirrors, and `applyExclusions` in `aggregate/displace.ts` for
    * where the cut is actually applied.
    *
@@ -433,6 +518,12 @@ export function createApp(db: Db, initialConfig: TraickerConfig) {
       return;
     }
 
+    const bucket = body['bucket'];
+    if (bucket !== 'focus' && bucket !== 'agent') {
+      res.status(400).json({ error: 'bucket must be "focus" or "agent"' });
+      return;
+    }
+
     const startUtc = Date.parse(String(body['startUtc'] ?? ''));
     const endUtc = Date.parse(String(body['endUtc'] ?? ''));
     if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc) || endUtc <= startUtc) {
@@ -440,7 +531,7 @@ export function createApp(db: Db, initialConfig: TraickerConfig) {
       return;
     }
 
-    const overlaps = findExclusionOverlaps(db, project.id, startUtc, endUtc);
+    const overlaps = findExclusionOverlaps(db, project.id, bucket, startUtc, endUtc);
     if (overlaps.length > 0 && body['force'] !== true) {
       res.status(409).json({
         error: 'overlaps existing exclusion',
@@ -458,6 +549,7 @@ export function createApp(db: Db, initialConfig: TraickerConfig) {
     const offset = localOffsetMinutes();
     const entry = insertExclusion(db, {
       projectId: project.id,
+      bucket,
       startUtc,
       endUtc,
       tzOffsetMin: offset,

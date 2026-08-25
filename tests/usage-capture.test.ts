@@ -93,8 +93,8 @@ function writeSubagentTranscript(agentId: string, lines: string): void {
 function seedEvent(sessionId: string, projectId: number): void {
   db.prepare(
     `INSERT INTO events (
-       event_uid, event_type, ts_utc, tz_offset_min, project_id, session_id, payload_json, ingested_at
-     ) VALUES (?, 'UserPromptSubmit', '2026-08-10T12:00:00.000Z', -180, ?, ?, '{}', '2026-08-10T12:00:00.000Z')`,
+       event_uid, event_type, ts_utc, tz_offset_min, project_id, session_id, host, payload_json, ingested_at
+     ) VALUES (?, 'UserPromptSubmit', '2026-08-10T12:00:00.000Z', -180, ?, ?, 'claude', '{}', '2026-08-10T12:00:00.000Z')`,
   ).run(`uid-${sessionId}`, projectId, sessionId);
 }
 

@@ -345,6 +345,25 @@ CREATE TABLE excluded_spans (
 CREATE INDEX idx_excluded_spans_project ON excluded_spans (project_id, start_utc);
 `;
 
+const M015_EXCLUDED_SPANS_BUCKET = /* sql */ `
+-- An exclusion originally only ever cut agent time; the column defaults to
+-- 'agent' so every row written before this migration keeps meaning exactly
+-- what it always meant. Focus can be wrong too (a prompt block misattributed
+-- by a stray UserPromptSubmit, say), and now gets the same correction instead
+-- of a second, parallel mechanism.
+ALTER TABLE excluded_spans ADD COLUMN bucket TEXT NOT NULL DEFAULT 'agent';
+`;
+
+const M016_HOST = /* sql */ `
+-- Which coding agent produced the work — Claude Code or Cursor. Carried on
+-- events at ingestion and copied onto spans so the dashboard can draw one
+-- timeline strip per host without re-joining the event log.
+ALTER TABLE events ADD COLUMN host TEXT NOT NULL DEFAULT 'claude';
+ALTER TABLE spans ADD COLUMN host TEXT NOT NULL DEFAULT 'claude';
+
+CREATE INDEX idx_spans_host ON spans (local_day, host, project_id);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'init', sql: M001_INIT },
   { version: 2, name: 'occupancy', sql: M002_OCCUPANCY },
@@ -360,6 +379,8 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 12, name: 'subagent_usage', sql: M012_SUBAGENT_USAGE },
   // 13 skipped on purpose — see the comment above M014_EXCLUDED_SPANS.
   { version: 14, name: 'excluded_spans', sql: M014_EXCLUDED_SPANS },
+  { version: 15, name: 'excluded_spans_bucket', sql: M015_EXCLUDED_SPANS_BUCKET },
+  { version: 16, name: 'host', sql: M016_HOST },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

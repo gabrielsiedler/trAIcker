@@ -102,6 +102,7 @@ export function manualSpans(entries: readonly ManualEntryRow[]): Span[] {
       spans.push({
         bucket: 'focus',
         source: 'manual',
+        host: 'claude',
         project_id: entry.project_id,
         session_id: `manual-${entry.id}`,
         agent_id: null,

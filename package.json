@@ -15,6 +15,7 @@
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",
     "build:web": "vite build",
+    "build:dsh-plugin": "node scripts/build-dsh-plugin.mjs",
     "dev": "vite",
     "dev:server": "tsx watch src/server/serve.ts",
     "serve": "node dist/server/serve.js",
@@ -26,7 +27,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cli": "tsx src/cli/index.ts",
-    "install-hooks": "tsx src/cli/index.ts install-hooks"
+    "install-hooks": "tsx src/cli/index.ts install-hooks",
+    "install-cursor-hooks": "tsx src/cli/index.ts install-cursor-hooks"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
