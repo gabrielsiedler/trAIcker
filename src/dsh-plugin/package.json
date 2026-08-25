@@ -1,0 +1,43 @@
+{
+  "name": "@traicker/dsh-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness plugin for trAIcker — passive time tracking for AI-agent orchestration",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "capture.js",
+    "capture.d.ts",
+    "spool.js",
+    "spool.d.ts",
+    "usage.js",
+    "usage.d.ts",
+    "types.js",
+    "types.d.ts",
+    "*.js.map"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-session": "^0.1.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-session": "^0.1.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@deepseek-ai/schemastery": "^0.1.0"
+  }
+}

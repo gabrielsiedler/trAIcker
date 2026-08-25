@@ -602,6 +602,35 @@ table.data .muted {
 
 /* ── timeline ───────────────────────────────────────────────────────────── */
 
+/* Hairline between the two agents of one project. Deliberately fainter than
+   the project gap above it: it separates Claude from Cursor inside a project,
+   it is not a project boundary. */
+.host-divider {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.host-mark {
+  flex: none;
+}
+
+/* Vendor colours, so the mark identifies its sub-row on its own — every bar in
+   the row is painted the project's colour. */
+.host-mark-claude {
+  color: #d97757;
+}
+
+.host-mark-cursor {
+  color: #9aa4b2;
+}
+
+.legend-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .timeline {
   position: relative;
 }
@@ -806,15 +835,17 @@ table.data .muted {
   font-size: 13.5px;
 }
 
-/* Agent blocks are the only shape the panel says so about, and only they
-   carry the exclusion mechanism — clicking one takes over the tooltip slot
-   below the strip rather than opening a second panel. */
+/* Focus and agent blocks both carry the exclusion mechanism — clicking one
+   takes over the tooltip slot below the strip rather than opening a second
+   panel. The billable envelope does not: it's a derived view, not a bucket
+   with its own record to correct. */
+.timeline .focus-span.excludable,
 .timeline .agent-span.excludable {
   cursor: pointer;
 }
 
-/* Invisible click target padded out around a (possibly sub-pixel) agent
-   block — see the comment at its render site in TimelineStrip. */
+/* Invisible click target padded out around a (possibly sub-pixel) focus or
+   agent block — see the comment at its render site in TimelineStrip. */
 .timeline .span-hit {
   cursor: pointer;
 }
@@ -1598,6 +1629,57 @@ tr.pp-tr-editing .pp-col-edit button {
 tr.pp-tr-edit-row td {
   padding: 0 10px 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+/* ── model pricing editor ──────────────────────────────────────────────── */
+
+.mp-table .mp-col-edit {
+  width: 1%;
+  padding-left: 14px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mp-table .mp-col-edit button {
+  padding: 4px 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mp-table .mp-col-edit button:hover {
+  border-color: var(--focus);
+  color: var(--focus);
+}
+
+.mp-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mp-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mp-remove {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mp-remove:hover {
+  color: var(--text);
 }
 
 /* ── topics ─────────────────────────────────────────────────────────────── */

@@ -93,6 +93,7 @@ export function computeFocusSpans(prompts: readonly EventRow[], options: FocusOp
       spans.push({
         bucket: 'focus',
         source: 'prompt_gap',
+        host: prompt.host,
         project_id: prompt.project_id,
         session_id: prompt.session_id,
         agent_id: null,

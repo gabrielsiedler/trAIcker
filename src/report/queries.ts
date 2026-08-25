@@ -55,6 +55,7 @@ export interface TopicRow {
 export interface TimelineRow {
   bucket: string;
   source: string;
+  host: string;
   project_id: number;
   project_name: string;
   /** Carried so the strip can order and filter without a second request. */
@@ -192,7 +193,7 @@ export function prompts(db: Db, range: DateRange, projectFilter?: string, limit 
 export function timeline(db: Db, range: DateRange, projectFilter?: string): TimelineRow[] {
   return db
     .prepare(
-      `SELECT s.bucket, s.source, s.project_id, p.name AS project_name, p.billable, p.color,
+      `SELECT s.bucket, s.source, s.host, s.project_id, p.name AS project_name, p.billable, p.color,
               s.title, s.agent_type, s.start_utc, s.end_utc, s.duration_ms, s.truncated_by
        FROM spans s
        JOIN projects p ON p.id = s.project_id

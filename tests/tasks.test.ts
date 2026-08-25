@@ -28,6 +28,7 @@ function event(type: TrackedEvent, atMin: number, overrides: Partial<EventRow> =
     task_subject: null,
     duration_ms: null,
     source: 'hook' as const,
+    host: 'claude' as const,
     payload_json: '{}',
     ingested_at: new Date(BASE).toISOString(),
     ...overrides,

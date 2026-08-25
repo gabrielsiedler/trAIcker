@@ -29,6 +29,7 @@ function prompt(at: string, projectId: number, sessionId = 's1', title: string |
     task_subject: null,
     duration_ms: null,
     source: 'hook' as const,
+    host: 'claude' as const,
     payload_json: '{}',
     ingested_at: at,
   };

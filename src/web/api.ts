@@ -42,6 +42,7 @@ export interface ProjectDay extends ProjectTotal {
 export interface TimelineSpan {
   bucket: 'focus' | 'agent' | 'occupancy';
   source: 'prompt_gap' | 'main_turn' | 'subagent' | 'billable_block';
+  host: 'claude' | 'cursor';
   project_id: number;
   project_name: string;
   /** Drives lane order and the billable filter without a second request. */
@@ -74,11 +75,31 @@ export interface ModelUsage {
   partiallyPriced: boolean;
 }
 
+export interface ModelPricingEntry {
+  effectiveFrom: string;
+  inputPerMillion: number;
+  outputPerMillion: number;
+  cacheWritePerMillion?: number;
+  cacheReadPerMillion?: number;
+}
+
 export interface ModelUsageResponse {
   range: DateRange;
   models: ModelUsage[];
   /** Model names present in the range with no `modelPricing` entry. */
   unpriced: string[];
+  /** Full price history per model, keyed the same way as `config.json`'s `modelPricing`. */
+  pricing: Record<string, ModelPricingEntry[]>;
+}
+
+export interface PricingLookupResult {
+  found: boolean;
+  inputPerMillion: number | null;
+  outputPerMillion: number | null;
+  cacheWritePerMillion: number | null;
+  cacheReadPerMillion: number | null;
+  sourceUrl: string | null;
+  note: string;
 }
 
 export interface BillableProject {
@@ -143,6 +164,7 @@ export interface ExcludedSpan {
   id: number;
   project_id: number;
   project_name: string;
+  bucket: 'focus' | 'agent';
   start_utc: string;
   end_utc: string;
   tz_offset_min: number;
@@ -297,9 +319,31 @@ export const api = {
   deleteEntry: (id: number) => send<{ ok: true }>('DELETE', `/api/entries/${id}`),
 
   exclusions: (from: string, to: string) => get<{ exclusions: ExcludedSpan[] }>('/api/exclusions', { from, to }),
-  addExclusion: (entry: { projectId: number; startUtc: string; endUtc: string; note?: string; force?: boolean }) =>
-    send<{ ok: true; entry: ExcludedSpan }>('POST', '/api/exclusions', entry),
+  addExclusion: (entry: {
+    projectId: number;
+    bucket: 'focus' | 'agent';
+    startUtc: string;
+    endUtc: string;
+    note?: string;
+    force?: boolean;
+  }) => send<{ ok: true; entry: ExcludedSpan }>('POST', '/api/exclusions', entry),
   deleteExclusion: (id: number) => send<{ ok: true }>('DELETE', `/api/exclusions/${id}`),
+
+  saveModelPricing: (entry: {
+    model: string;
+    effectiveFrom: string;
+    inputPerMillion: number;
+    outputPerMillion: number;
+    cacheWritePerMillion?: number;
+    cacheReadPerMillion?: number;
+  }) => send<{ ok: true; backup: string; entry: ModelPricingEntry }>('POST', '/api/model-pricing', entry),
+  deleteModelPricing: (model: string, effectiveFrom: string) =>
+    send<{ ok: true; backup: string }>(
+      'DELETE',
+      `/api/model-pricing?model=${encodeURIComponent(model)}&effectiveFrom=${encodeURIComponent(effectiveFrom)}`,
+    ),
+  lookupModelPricing: (model: string) =>
+    send<PricingLookupResult>('POST', '/api/model-pricing/lookup', { model }),
 
   projectSettings: () =>
     get<{ configPath: string; projects: ProjectSettings[] }>('/api/projects/settings', {}),

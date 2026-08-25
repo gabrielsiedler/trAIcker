@@ -29,25 +29,34 @@ hash. Run any of it as many times as you like.
 
 ## Hooks used
 
+**Claude Code** (`install-hooks` → `~/.claude/settings.json`):
 `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `SubagentStart`,
 `SubagentStop`, `Stop`, `CwdChanged`, `TaskCreated`, `TaskCompleted`, and
-`PostToolUse` matched to `Task`. Each one is registered with a 5 second timeout
-(Claude Code's default is 600) and the hook kills itself after 2.
+`PostToolUse` matched to `Task`.
 
-**Subagents are measured from `PostToolUse`, not from Start/Stop.**
-`SubagentStart` never fires in current builds, verified at 0 events against 16
-`SubagentStop`, so a pair can never be formed. Every subagent span was silently
-missing, which made agent effort come out identical to agent wall-clock and
-erased all parallelism from the reports. `PostToolUse` carries `duration_ms`, so
-the span comes from the tool call itself and there's nothing to pair. The `Task`
-matcher keeps it off the hot path: it fires once per subagent run, not once per
-tool call.
+**Cursor Agent / CLI** (`install-cursor-hooks` → `~/.cursor/hooks.json`):
+`sessionStart`, `sessionEnd`, `beforeSubmitPrompt`, `subagentStart`,
+`subagentStop`, `stop`, and `postToolUse` matched to `Task`. The same hook
+binary maps these onto the Claude-shaped event names the spool already uses.
+
+Each one is registered with a 5 second timeout (Claude Code's default is 600)
+and the hook kills itself after 2.
+
+**Subagents are measured from duration-bearing events, not from Start/Stop
+alone.** On Claude Code, `SubagentStart` never fires in current builds
+(verified at 0 events against 16 `SubagentStop`), so a pair can never be
+formed. `PostToolUse` carries `duration_ms` and the span comes from the tool
+call itself. On Cursor, `subagentStop` carries `duration_ms` even when Start
+was missed, and `postToolUse` reports `duration` for the Task tool; both feed
+the same aggregation path. The `Task` matcher keeps `postToolUse` off the hot
+path: it fires once per subagent run, not once per tool call.
 
 **The hook filters nothing.** It records and exits, and ingestion decides what
 counts. Filtering at capture time can't be undone, and an `ignorePaths` prefix
 match once silently dropped an hour of a client's work before anyone noticed.
 
-Remove them all with `uninstall-hooks`, which strips only trAIcker's entries.
+Remove them with `uninstall-hooks` / `uninstall-cursor-hooks`, which strip only
+trAIcker's entries.
 
 ### Verifying capture
 

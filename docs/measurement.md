@@ -39,10 +39,18 @@ traicker excluded --week
 traicker unexclude 4
 ```
 
-This is not a manual entry. It cuts agent time on that one project, for that
-window, and adds nothing back. It says the captured time was not real work,
-not "here is what I was doing instead". Focus is never touched, and other
-projects are never touched, even ones running in the same window.
+Focus can be wrong the same way: a stray `UserPromptSubmit` attributes a
+prompt gap to the wrong project. Same fix, `--bucket focus`:
+
+```bash
+traicker exclude --project vyrve --bucket focus --from 9:00 --to 9:20 --note "prompt logged against the wrong project"
+```
+
+This is not a manual entry. It cuts one bucket (`--bucket focus|agent`,
+default `agent`) on that one project, for that window, and adds nothing back.
+It says the captured time was not real work, not "here is what I was doing
+instead". The other bucket is never touched, and other projects are never
+touched, even ones running in the same window.
 
 **Descriptions never contain raw prompt text.** Labels come from declared task
 subjects or from Claude Code's own `ai-title`. When neither exists, the day

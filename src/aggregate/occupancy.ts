@@ -29,7 +29,7 @@ export function computeOccupancySpans(spans: readonly Span[], options: Occupancy
 
   for (const span of spans) {
     if (span.bucket === 'occupancy') continue; // never fold a previous pass back in
-    const key = `${span.local_day}|${span.project_id}`;
+    const key = `${span.local_day}|${span.project_id}|${span.host}`;
     const list = groups.get(key);
     if (list) list.push(span);
     else groups.set(key, [span]);
@@ -47,6 +47,7 @@ export function computeOccupancySpans(spans: readonly Span[], options: Occupancy
       result.push({
         bucket: 'occupancy',
         source: 'billable_block',
+        host: first.host,
         project_id: first.project_id,
         session_id: dominantSession(group, block),
         agent_id: null,

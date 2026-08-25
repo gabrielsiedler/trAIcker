@@ -1,15 +1,16 @@
 /**
- * trAIcker hook entrypoint. One binary, all seven Claude Code events.
+ * trAIcker hook entrypoint. One binary for Claude Code and Cursor Agent/CLI.
  *
- * This process runs inside your editing loop. Claude Code waits for it before
+ * This process runs inside your editing loop. The host waits for it before
  * your prompt is delivered, so its entire job is: read stdin, append one line,
  * exit. Everything expensive — SQLite, project-root resolution, aggregation —
  * happens later, out of band.
  *
  * Four rules, all load-bearing:
  *
- * 1. NEVER write to stdout. On UserPromptSubmit, a hook's stdout is injected
- *    into your prompt as context. A stray log line would silently corrupt every
+ * 1. NEVER write to stdout. On UserPromptSubmit / beforeSubmitPrompt, a hook's
+ *    stdout is injected into your prompt as context (Claude) or parsed as a
+ *    control response (Cursor). A stray log line would silently corrupt every
  *    message you send.
  *
  * 2. ALWAYS exit 0, whatever happens. A tracker that can block a session is
@@ -26,14 +27,15 @@
  *    themselves import only node: builtins.
  */
 
-import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { spawn, execFileSync } from 'node:child_process';
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadHookConfig } from './core/config.js';
 import { normalizePath } from './core/paths.js';
-import { isTrackedEvent, type SpoolRecord, type TrackedEvent } from './core/types.js';
+import { isTrackedEvent, type SpoolRecord, type ToolHost, type TrackedEvent } from './core/types.js';
 
 /** Hard ceiling on the whole process, in case stdin never closes. */
 const WATCHDOG_MS = 2_000;
@@ -41,8 +43,23 @@ const WATCHDOG_MS = 2_000;
 /** Fail-safe cap on excerpt length regardless of config. */
 const MAX_EXCERPT = 200;
 
+/**
+ * Cursor's native hook names → the Claude-shaped TrackedEvent names the spool
+ * and aggregation pipeline already speak. Claude Code payloads pass through
+ * unchanged (their hook_event_name is already a TrackedEvent).
+ */
+const CURSOR_EVENT_MAP: Record<string, TrackedEvent> = {
+  sessionStart: 'SessionStart',
+  sessionEnd: 'SessionEnd',
+  beforeSubmitPrompt: 'UserPromptSubmit',
+  subagentStart: 'SubagentStart',
+  subagentStop: 'SubagentStop',
+  stop: 'Stop',
+  postToolUse: 'PostToolUse',
+};
+
 function main(): void {
-  const raw = readStdin();
+  const raw = readPayload();
   if (raw === null) return;
 
   let payload: Record<string, unknown>;
@@ -54,8 +71,8 @@ function main(): void {
     return;
   }
 
-  const eventType = payload['hook_event_name'];
-  if (!isTrackedEvent(eventType)) return;
+  const eventType = resolveEventType(payload['hook_event_name']);
+  if (eventType === null) return;
 
   // PostToolUse is registered with a Task matcher, but this guard makes the
   // filter belong to the code rather than to a settings file someone may edit.
@@ -78,6 +95,115 @@ function main(): void {
   // A session ending is the natural moment to fold the spool into SQLite. Fired
   // detached so the exiting session never waits on it.
   if (eventType === 'SessionEnd') triggerBackgroundSync();
+}
+
+function resolveEventType(raw: unknown): TrackedEvent | null {
+  if (typeof raw !== 'string') return null;
+  if (isTrackedEvent(raw)) return raw;
+  return CURSOR_EVENT_MAP[raw] ?? null;
+}
+
+/**
+ * Reads the hook payload.
+ *
+ * Claude Code and Cursor on Unix pass JSON on stdin. Cursor Agent on Windows
+ * writes a temp cursor-hooks payload.json and runs Get-Content piped through
+ * $input, which does not deliver bytes to Node's fd 0, and a blocking stdin
+ * read would eat the whole 2s watchdog before we ever look at the temp file.
+ * Prefer --payload, then the Windows Cursor temp-file path when CURSOR_VERSION
+ * is set, then stdin.
+ */
+function readPayload(): string | null {
+  const flag = process.argv.indexOf('--payload');
+  if (flag >= 0) {
+    const file = process.argv[flag + 1];
+    if (typeof file === 'string' && file.length > 0) {
+      try {
+        const data = readFileSync(file, 'utf8');
+        return data.length > 0 ? data : null;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  // Cursor Agent sets CURSOR_VERSION on the hook process. On Windows its
+  // stdin transport is broken, so skip the blocking read entirely.
+  if (process.platform === 'win32' && process.env['CURSOR_VERSION']) {
+    return readWindowsCursorTempPayload();
+  }
+
+  const fromStdin = readStdin();
+  if (fromStdin !== null) return fromStdin;
+
+  if (process.platform === 'win32') return readWindowsCursorTempPayload();
+  return null;
+}
+
+/**
+ * Cursor Agent on Windows leaves the payload on disk under `%TEMP%\cursor-hooks-*`.
+ * The path is also embedded in the parent PowerShell command line. Prefer that
+ * exact path so concurrent hooks do not steal each other's files; fall back to
+ * the newest fresh payload.json if the parent lookup fails.
+ */
+function readWindowsCursorTempPayload(): string | null {
+  if (process.platform !== 'win32') return null;
+
+  const fromParent = payloadPathFromParentCommandLine();
+  if (fromParent !== null) {
+    try {
+      const data = readFileSync(fromParent, 'utf8');
+      return data.length > 0 ? data : null;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  try {
+    const root = tmpdir();
+    const fresh: Array<{ file: string; mtime: number }> = [];
+    const cutoff = Date.now() - 15_000;
+
+    for (const name of readdirSync(root)) {
+      if (!name.startsWith('cursor-hooks-')) continue;
+      const file = path.join(root, name, 'payload.json');
+      try {
+        const st = statSync(file);
+        if (st.isFile() && st.mtimeMs >= cutoff) fresh.push({ file, mtime: st.mtimeMs });
+      } catch {
+        /* missing */
+      }
+    }
+
+    fresh.sort((a, b) => b.mtime - a.mtime);
+    const best = fresh[0];
+    if (!best) return null;
+    const data = readFileSync(best.file, 'utf8');
+    return data.length > 0 ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pulls `...\cursor-hooks-...\payload.json` out of the parent process command line. */
+function payloadPathFromParentCommandLine(): string | null {
+  try {
+    const ppid = process.ppid;
+    if (!ppid || ppid <= 0) return null;
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${ppid}").CommandLine`,
+      ],
+      { encoding: 'utf8', timeout: 800, windowsHide: true },
+    );
+    const match = out.match(/([A-Za-z]:\\[^'"\r\n]*cursor-hooks-[^'"\r\n\\]+\\payload\.json)/i);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -105,16 +231,25 @@ function buildRecord(
   payload: Record<string, unknown>,
   excerptChars: number,
 ): SpoolRecord | null {
-  // A session belongs to the project it was launched in, and CLAUDE_PROJECT_DIR
-  // is the only field that says so.
+  // A session belongs to the project it was launched in.
   //
-  // The live cwd is NOT a signal of ownership: an agent moves directories all
-  // the time — reading a file from another repo, inspecting a sibling project —
-  // and none of that changes whose work is being done. Trusting cwd instead
-  // moved an hour of one client's work onto another's the first time a session
-  // was asked to look at something next door. `new_cwd` is recorded for
-  // auditing and deliberately not used for attribution, for the same reason.
-  const cwdSource = process.env['CLAUDE_PROJECT_DIR'] ?? str(payload['cwd']) ?? process.cwd();
+  // Claude Code exposes that as CLAUDE_PROJECT_DIR. Cursor exposes it as
+  // workspace_roots[0]. The live cwd is NOT a signal of ownership: an agent
+  // moves directories all the time — reading a file from another repo,
+  // inspecting a sibling project — and none of that changes whose work is
+  // being done. Trusting cwd instead moved an hour of one client's work onto
+  // another's the first time a session was asked to look at something next
+  // door. `new_cwd` is recorded for auditing and deliberately not used for
+  // attribution, for the same reason.
+  const roots = payload['workspace_roots'];
+  const workspaceRoot =
+    Array.isArray(roots) && typeof roots[0] === 'string' && roots[0].length > 0 ? roots[0] : null;
+
+  // Empty string is what the doctor/tests use to clear the Claude env var on
+  // hosts that set it; treat it as absent so Cursor's workspace_roots win.
+  const claudeProject = str(process.env['CLAUDE_PROJECT_DIR']);
+
+  const cwdSource = claudeProject ?? workspaceRoot ?? str(payload['cwd']) ?? process.cwd();
 
   let cwd: string;
   try {
@@ -123,21 +258,31 @@ function buildRecord(
     return null;
   }
 
-  const sessionId = str(payload['session_id']);
+  // Claude uses session_id; Cursor's common schema uses conversation_id
+  // (sessionStart/sessionEnd also mirror it as session_id).
+  const sessionId =
+    str(payload['session_id']) ?? str(payload['conversation_id']) ?? str(payload['parent_conversation_id']);
   if (sessionId === null) return null;
 
   const now = new Date();
   const title = str(payload['session_title']);
   const prompt = eventType === 'UserPromptSubmit' ? str(payload['prompt']) : null;
 
-  // The Task tool's input names the subagent; nothing else in the payload does,
-  // and SubagentStop arrives with an empty agent_type.
+  // The Task tool's input names the subagent; nothing else in the Claude
+  // payload does, and SubagentStop arrives with an empty agent_type. Cursor
+  // puts subagent_type on the lifecycle events themselves.
   const toolInput = payload['tool_input'];
-  const subagentType =
+  const toolSubagentType =
     eventType === 'PostToolUse' && typeof toolInput === 'object' && toolInput !== null
       ? str((toolInput as Record<string, unknown>)['subagent_type'])
       : null;
-  const duration = eventType === 'PostToolUse' ? payload['duration_ms'] : null;
+
+  // Cursor postToolUse reports `duration`; Claude and Cursor subagentStop use
+  // `duration_ms`. Accept both so a single binary covers both hosts.
+  const duration =
+    eventType === 'PostToolUse' || eventType === 'SubagentStop'
+      ? num(payload['duration_ms']) ?? num(payload['duration'])
+      : null;
 
   return {
     v: 1,
@@ -146,24 +291,40 @@ function buildRecord(
     tz: -now.getTimezoneOffset(),
     cwd,
     sid: sessionId,
-    aid: str(payload['agent_id']) ?? str(payload['tool_use_id']),
-    at: str(payload['agent_type']) ?? subagentType,
-    pid: str(payload['prompt_id']),
-    r: str(payload['reason']) ?? str(payload['source']) ?? str(payload['old_cwd']),
+    aid:
+      str(payload['subagent_id']) ??
+      str(payload['agent_id']) ??
+      str(payload['tool_use_id']) ??
+      str(payload['tool_call_id']),
+    at: str(payload['agent_type']) ?? str(payload['subagent_type']) ?? toolSubagentType,
+    pid: str(payload['prompt_id']) ?? str(payload['generation_id']),
+    r: str(payload['reason']) ?? str(payload['source']) ?? str(payload['status']) ?? str(payload['old_cwd']),
     ttl: title === null ? null : clip(title, 120),
     plen: prompt === null ? null : prompt.length,
-    // Only kept when Claude Code has not produced a title yet — on the first
+    // Only kept when the host has not produced a title yet — on the first
     // prompt of a session there is nothing else to label the block with.
     ex: prompt !== null && title === null && excerptChars > 0 ? clip(prompt, Math.min(excerptChars, MAX_EXCERPT)) : null,
     tid: str(payload['task_id']),
     // Subject only. The description can run long, and line size is what keeps
     // concurrent appends atomic.
     tsub: (() => {
-      const subject = str(payload['task_subject']);
+      const subject = str(payload['task_subject']) ?? str(payload['description']) ?? str(payload['task']);
       return subject === null ? null : clip(subject, 120);
     })(),
-    dur: typeof duration === 'number' && Number.isFinite(duration) && duration >= 0 ? Math.round(duration) : null,
+    dur: duration,
+    h: detectHost(payload),
   };
+}
+
+/** Cursor payloads use camelCase hook names or conversation_id; Claude uses TrackedEvent names. */
+function detectHost(payload: Record<string, unknown>): ToolHost {
+  const raw = payload['hook_event_name'];
+  if (typeof raw === 'string' && !isTrackedEvent(raw)) return 'cursor';
+  if (str(payload['conversation_id']) !== null) return 'cursor';
+  const roots = payload['workspace_roots'];
+  if (Array.isArray(roots) && roots.length > 0) return 'cursor';
+  if (process.env['CURSOR_VERSION']) return 'cursor';
+  return 'claude';
 }
 
 /** Collapses whitespace and truncates. Keeps lines single-line and bounded. */
@@ -175,6 +336,10 @@ function clip(value: string, max: number): string | null {
 
 function str(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function num(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
 }
 
 /**

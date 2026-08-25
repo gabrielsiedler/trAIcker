@@ -74,15 +74,17 @@ function toInterval(span: Span): Interval {
 }
 
 /**
- * Carves known-wrong windows out of agent time, project by project.
+ * Carves known-wrong windows out of one bucket's spans, project by project.
  *
- * Deliberately never touches focus, and never on any project but its own: an
- * exclusion is a correction to one project's record, not a claim about where
- * you were. See `ExcludedSpanRow` for why this is a separate mechanism from a
- * manual entry rather than another `ManualKind`.
+ * Caller passes the exclusions already filtered to the bucket being carved
+ * (see `aggregate/run.ts`), so an agent exclusion never reaches a focus span
+ * and vice versa. Never on any project but its own: an exclusion is a
+ * correction to one project's record, not a claim about where you were. See
+ * `ExcludedSpanRow` for why this is a separate mechanism from a manual entry
+ * rather than another `ManualKind`.
  */
-export function applyExclusions(agentSpans: readonly Span[], exclusions: readonly ExcludedSpanRow[]): Span[] {
-  if (exclusions.length === 0) return [...agentSpans];
+export function applyExclusions(spans: readonly Span[], exclusions: readonly ExcludedSpanRow[]): Span[] {
+  if (exclusions.length === 0) return [...spans];
 
   const byProject = new Map<number, Interval[]>();
   for (const exclusion of exclusions) {
@@ -91,5 +93,5 @@ export function applyExclusions(agentSpans: readonly Span[], exclusions: readonl
     byProject.set(exclusion.project_id, list);
   }
 
-  return agentSpans.flatMap((span) => carve(span, byProject.get(span.project_id) ?? []));
+  return spans.flatMap((span) => carve(span, byProject.get(span.project_id) ?? []));
 }

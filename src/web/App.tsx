@@ -8,6 +8,7 @@ import {
   todayLocal,
   type BillableProject,
   type DateRange,
+  type ModelPricingEntry,
   type ModelUsage,
   type ProjectDay,
   type ProjectTotal,
@@ -106,6 +107,7 @@ export function App() {
   const [spans, setSpans] = useState<TimelineSpan[]>([]);
   const [models, setModels] = useState<ModelUsage[]>([]);
   const [unpricedModels, setUnpricedModels] = useState<string[]>([]);
+  const [modelPricing, setModelPricing] = useState<Record<string, ModelPricingEntry[]>>({});
   const [laneFilter, setLaneFilter] = useState<BillableFilter>('billable');
   const [projects, setProjects] = useState<BillableProject[]>([]);
   /** Project name the whole window is narrowed to, or null for everything. */
@@ -173,6 +175,7 @@ export function App() {
       setSpans(timeline.spans);
       setModels(modelUsage.models);
       setUnpricedModels(modelUsage.unpriced);
+      setModelPricing(modelUsage.pricing);
       setAllTotals(unscoped ? unscoped.totals : summary.totals);
       // Detected by absence rather than by a version handshake: the field is
       // simply not in the payload of a server built before it existed.
@@ -473,7 +476,12 @@ export function App() {
             {loading ? (
               <LanesSkeleton count={3} />
             ) : (
-              <ModelsPanel models={models} unpriced={unpricedModels} />
+              <ModelsPanel
+                models={models}
+                unpriced={unpricedModels}
+                pricing={modelPricing}
+                onChanged={() => void load()}
+              />
             )}
           </section>
         </div>

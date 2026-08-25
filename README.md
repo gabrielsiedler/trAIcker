@@ -13,6 +13,7 @@ Runs as a CLI, a local web dashboard, or a desktop app.
 
 ![Interfaces: CLI, web dashboard, desktop app](https://img.shields.io/badge/interface-CLI_%C2%B7_web_%C2%B7_desktop-58a6ff?style=flat-square&labelColor=0d1117)
 ![Claude Code hooks](https://img.shields.io/badge/Claude_Code-hooks-8b949e?style=flat-square&labelColor=0d1117)
+![Cursor Agent hooks](https://img.shields.io/badge/Cursor_Agent-hooks-8b949e?style=flat-square&labelColor=0d1117)
 ![Node 22 or newer](https://img.shields.io/badge/Node-%E2%89%A5_22-d29922?style=flat-square&labelColor=0d1117)
 ![Storage: SQLite, local only](https://img.shields.io/badge/storage-SQLite,_local_only-3fb950?style=flat-square&labelColor=0d1117)
 ![Network: only when you ask](https://img.shields.io/badge/network-only_when_you_ask-8b949e?style=flat-square&labelColor=0d1117)
@@ -88,16 +89,19 @@ trackers one at a time.
 ```bash
 npm install
 npm run build
-node dist/cli/index.js install-hooks       # writes ~/.claude/settings.json
-traicker doctor                            # check capture through the real hook
+node dist/cli/index.js install-hooks          # Claude Code → ~/.claude/settings.json
+node dist/cli/index.js install-cursor-hooks   # Cursor Agent/CLI → ~/.cursor/hooks.json
+traicker doctor                               # check capture through the real hook
 ```
 
-`install-hooks` backs up the current file and merges into it. Hooks you already
-have on the same events are left alone. Use `--dry-run` to print the resulting
-file first, `--project` to scope it to one repository, and `uninstall-hooks` to
-remove only trAIcker's entries.
+`install-hooks` and `install-cursor-hooks` each back up the current file and
+merge into it. Hooks you already have on the same events are left alone. Use
+`--dry-run` to print the resulting file first, `--project` to scope it to one
+repository, and the matching `uninstall-*` command to remove only trAIcker's
+entries.
 
-Restart any running Claude Code session afterwards. Hooks load at session start.
+Restart any running Claude Code or Cursor Agent session afterwards. Hooks load
+at session start.
 
 ## Use
 
@@ -120,7 +124,7 @@ app is holding the database.
 | `traicker timeline --day D` | every span of a day, in order |
 | `traicker timesheet --project X` | one line per day, for a client's form (`--csv`, `--month`) |
 | `traicker add` · `entries` · `rm` | time off the tools: meetings, calls, research |
-| `traicker exclude` · `excluded` · `unexclude` | correct agent time capture got wrong, like a subagent stuck retrying through a provider outage |
+| `traicker exclude` · `excluded` · `unexclude` | correct focus or agent time capture got wrong, like a subagent stuck retrying through a provider outage |
 | `traicker note` · `summarize` · `translate` | fix, rewrite or translate a timesheet line |
 | `traicker reproject` | re-attribute history after changing projects in config |
 | `traicker serve` | dashboard on `:4317` |

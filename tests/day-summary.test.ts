@@ -66,8 +66,8 @@ function addTopic(title: string, occupancyMs: number): void {
 function addPrompt(uid: string, excerpt: string | null, tsUtc: string, offsetMin = -180): void {
   db.prepare(
     `INSERT INTO events (event_uid, event_type, ts_utc, tz_offset_min, project_id, session_id,
-                         prompt_excerpt, payload_json, ingested_at, source)
-     VALUES (?, 'UserPromptSubmit', ?, ?, ?, 's1', ?, '{}', ?, 'hook')`,
+                         prompt_excerpt, payload_json, ingested_at, source, host)
+     VALUES (?, 'UserPromptSubmit', ?, ?, ?, 's1', ?, '{}', ?, 'hook', 'claude')`,
   ).run(uid, tsUtc, offsetMin, projectId, excerpt, new Date().toISOString());
 }
 

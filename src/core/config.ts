@@ -343,7 +343,8 @@ function parseModelPricingEntries(raw: unknown): ModelPricingEntry[] {
   return entries.sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : a.effectiveFrom > b.effectiveFrom ? 1 : 0));
 }
 
-function parseModelPricingEntry(raw: unknown): ModelPricingEntry | null {
+/** Validates one price-history entry — exported so the dashboard's write path validates the same way a config-file edit is parsed. */
+export function parseModelPricingEntry(raw: unknown): ModelPricingEntry | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const p = raw as Record<string, unknown>;
 

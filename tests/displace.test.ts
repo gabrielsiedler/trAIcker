@@ -12,6 +12,7 @@ function span(bucket: Span['bucket'], source: Span['source'], from: number, to: 
   return {
     bucket,
     source,
+    host: 'claude',
     project_id: projectId,
     session_id: 's1',
     agent_id: null,
@@ -129,10 +130,11 @@ describe('applyManualEntries', () => {
   });
 });
 
-function exclusion(from: number, to: number, projectId = 1): ExcludedSpanRow {
+function exclusion(from: number, to: number, projectId = 1, bucket: ExcludedSpanRow['bucket'] = 'agent'): ExcludedSpanRow {
   return {
     id: 1,
     project_id: projectId,
+    bucket,
     start_utc: at(from),
     end_utc: at(to),
     tz_offset_min: 0,
@@ -154,12 +156,12 @@ describe('applyExclusions', () => {
     expect(mins(result)).toEqual([60]);
   });
 
-  it('never touches focus', () => {
-    // applyExclusions only ever receives the agent array, but the guarantee
-    // that matters is that it takes no focus spans as input at all — an
-    // exclusion is not a claim about where you were.
-    const agentResult = applyExclusions([span('agent', 'main_turn', 0, 60, 1)], [exclusion(0, 60, 1)]);
-    expect(agentResult).toHaveLength(0);
+  it('also carves focus spans, when the caller passes a focus exclusion', () => {
+    // The bucket boundary lives in the caller (aggregate/run.ts filters
+    // exclusions to one bucket before calling), not in this function — it
+    // just carves whatever span array it is given.
+    const result = applyExclusions([span('focus', 'prompt_gap', 0, 60, 1)], [exclusion(10, 40, 1, 'focus')]);
+    expect(mins(result)).toEqual([10, 20]);
   });
 
   it('changes nothing when there are no exclusions', () => {

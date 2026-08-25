@@ -16,7 +16,7 @@ import type { TraickerConfig } from '../core/config.js';
 import type { Db } from '../core/db.js';
 import { listProjects, upsertProject } from '../core/db.js';
 import { pathKey, resolveProjectRoot, workspaceRoots } from '../core/paths.js';
-import { isTrackedEvent, type SpoolRecord } from '../core/types.js';
+import { isTrackedEvent, isToolHost, type SpoolRecord, type ToolHost } from '../core/types.js';
 
 export interface IngestResult {
   filesScanned: number;
@@ -74,8 +74,8 @@ export function ingest(db: Db, config: TraickerConfig): IngestResult {
     `INSERT OR IGNORE INTO events (
        event_uid, event_type, ts_utc, tz_offset_min, project_id, session_id,
        agent_id, agent_type, prompt_id, reason, session_title, prompt_chars,
-       prompt_excerpt, task_id, task_subject, duration_ms, source, payload_json, ingested_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hook', ?, ?)`,
+       prompt_excerpt, task_id, task_subject, duration_ms, source, host, payload_json, ingested_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hook', ?, ?, ?)`,
   );
 
   for (const file of listSpoolFiles(config.spoolDir)) {
@@ -145,6 +145,7 @@ export function ingest(db: Db, config: TraickerConfig): IngestResult {
           record.tid,
           record.tsub,
           record.dur,
+          hostOf(record),
           JSON.stringify(record),
           new Date().toISOString(),
         );
@@ -253,10 +254,15 @@ function parseRecord(line: string): SpoolRecord | null {
       tid: r.tid ?? null,
       tsub: r.tsub ?? null,
       dur: typeof r.dur === 'number' ? r.dur : null,
+      h: isToolHost(r.h) ? r.h : undefined,
     };
   } catch {
     return null;
   }
+}
+
+function hostOf(record: SpoolRecord): ToolHost {
+  return record.h ?? 'claude';
 }
 
 /**
