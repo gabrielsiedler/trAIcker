@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 
 import type { TraickerConfig } from '../core/config.js';
 import type { Db } from '../core/db.js';
@@ -45,9 +45,10 @@ interface ScanTarget {
  * The hook payload never carries either — Claude Code does not put them there
  * — so the transcript is the only source. Unlike the spool reader, transcript
  * lines can be several megabytes (a turn with a large tool result), so this
- * reads the whole file rather than a fixed-size chunk: a chunked read risks
- * never finding a newline inside one chunk. The cursor still makes repeat
- * calls cheap — only the bytes appended since the last pass are parsed.
+ * reads from the cursor's byte offset to end-of-file in one read rather than
+ * a fixed-size chunk: a chunked read risks never finding a newline inside one
+ * chunk. The cursor is what makes repeat calls cheap — only the bytes
+ * appended since the last pass are ever read off disk, not the whole file.
  *
  * Covers both the session's own transcript and the transcripts of every
  * subagent it dispatched. Subagent turns live in their own files one directory
@@ -121,14 +122,12 @@ export function captureModelUsage(db: Db, config: TraickerConfig): UsageCaptureR
 
     result.sessionsScanned++;
 
-    let content: string;
+    let remainder: string;
     try {
-      content = readFileSync(file, 'utf8');
+      remainder = readRange(file, startOffset, size);
     } catch {
       continue;
     }
-
-    const remainder = startOffset > 0 ? sliceRemainder(content, startOffset) : content;
 
     const lastNewline = remainder.lastIndexOf('\n');
     if (lastNewline === -1) continue; // no complete line since the cursor
@@ -187,9 +186,24 @@ export function captureModelUsage(db: Db, config: TraickerConfig): UsageCaptureR
   return result;
 }
 
-/** The portion of a fully-read file after a byte offset, decoded as UTF-8. */
-function sliceRemainder(content: string, byteOffset: number): string {
-  return Buffer.from(content, 'utf8').subarray(byteOffset).toString('utf8');
+/**
+ * Reads only `[start, end)` of a file, decoded as UTF-8.
+ *
+ * `start` is always a byte offset just past a `\n` written by an earlier
+ * pass (or 0), and `\n` is a single ASCII byte that never appears as a UTF-8
+ * continuation byte, so this always lands on a code-point boundary — safe to
+ * decode as UTF-8 without stitching it back onto the bytes before it.
+ */
+function readRange(file: string, start: number, end: number): string {
+  const fd = openSync(file, 'r');
+  try {
+    const length = end - start;
+    const buf = Buffer.alloc(length);
+    readSync(fd, buf, 0, length, start);
+    return buf.toString('utf8');
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Pulls model + usage out of one `type: "assistant"` transcript line. */

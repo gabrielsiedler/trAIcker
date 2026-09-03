@@ -281,7 +281,15 @@ async function buildTray(url: string): Promise<void> {
   // EADDRINUSE retry path (buildTray called a second time) never doubles up.
   if (trayPollTimer) clearInterval(trayPollTimer);
   trayPollTimer = setInterval(() => void pollTrayState(), TRAY_POLL_MS);
-  void pollTrayState();
+  // Deliberately not an immediate poll: `sync()` runs synchronously in this
+  // same process, and firing it right now would race the window's own first
+  // load — whichever gets to the single JS thread first blocks the other, and
+  // losing that race at cold start reads as the whole app hanging before
+  // anything has even painted. The window's first `/api/summary` fetch
+  // already triggers the same sync moments later, with the dashboard's own
+  // skeleton on screen to show something is happening; this timer only needs
+  // to catch up the tray dot once, so it can afford to wait its turn.
+  setTimeout(() => void pollTrayState(), TRAY_POLL_MS);
 }
 
 function start(): void {
