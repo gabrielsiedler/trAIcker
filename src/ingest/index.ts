@@ -26,6 +26,12 @@ export interface IngestResult {
   badLines: number;
   /** Local days touched — exactly the days aggregation needs to rebuild. */
   affectedDays: string[];
+  /**
+   * Days that gained a hook-sourced `model_usage` row (Cursor stop with
+   * tokens). Separate from {@link affectedDays} so cost rollup can rebuild
+   * even when the matching event was already ingested on an earlier pass.
+   */
+  usageDays: string[];
 }
 
 /** Read chunk size when draining a spool file from its cursor. */
@@ -50,11 +56,13 @@ export function ingest(db: Db, config: TraickerConfig): IngestResult {
     duplicatesSkipped: 0,
     badLines: 0,
     affectedDays: [],
+    usageDays: [],
   };
 
   if (!existsSync(config.spoolDir)) return result;
 
   const affected = new Set<string>();
+  const usageDays = new Set<string>();
   const projectCache = new Map<string, number>();
   // Declared roots beat marker detection, so a client directory without a
   // marker of its own is never absorbed by a parent that has one.
@@ -76,6 +84,12 @@ export function ingest(db: Db, config: TraickerConfig): IngestResult {
        agent_id, agent_type, prompt_id, reason, session_title, prompt_chars,
        prompt_excerpt, task_id, task_subject, duration_ms, source, host, payload_json, ingested_at
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hook', ?, ?, ?)`,
+  );
+  const insertUsage = db.prepare(
+    `INSERT OR IGNORE INTO model_usage (
+       message_id, project_id, session_id, local_day, ts_utc, model,
+       input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   for (const file of listSpoolFiles(config.spoolDir)) {
@@ -156,6 +170,27 @@ export function ingest(db: Db, config: TraickerConfig): IngestResult {
         } else {
           dupes++;
         }
+
+        // Hook-sourced usage (Cursor stop). Independent of whether the event
+        // row was new: a re-read after a cursor reset must still land the
+        // tokens, and message_id UNIQUE makes the second insert a no-op.
+        const usage = usageFromRecord(record);
+        if (usage) {
+          const day = localDayOf(record);
+          const usageInfo = insertUsage.run(
+            usage.messageId,
+            projectId,
+            record.sid,
+            day,
+            record.t,
+            usage.model,
+            usage.inputTokens,
+            usage.outputTokens,
+            usage.cacheCreationInputTokens,
+            usage.cacheReadInputTokens,
+          );
+          if (usageInfo.changes > 0) usageDays.add(day);
+        }
       }
 
       writeCursor.run(
@@ -176,6 +211,7 @@ export function ingest(db: Db, config: TraickerConfig): IngestResult {
   }
 
   result.affectedDays = [...affected].sort();
+  result.usageDays = [...usageDays].sort();
   return result;
 }
 
@@ -255,6 +291,11 @@ function parseRecord(line: string): SpoolRecord | null {
       tsub: r.tsub ?? null,
       dur: typeof r.dur === 'number' ? r.dur : null,
       h: isToolHost(r.h) ? r.h : undefined,
+      m: typeof r.m === 'string' && r.m.length > 0 ? r.m : null,
+      ti: typeof r.ti === 'number' && Number.isFinite(r.ti) ? r.ti : null,
+      to: typeof r.to === 'number' && Number.isFinite(r.to) ? r.to : null,
+      tcw: typeof r.tcw === 'number' && Number.isFinite(r.tcw) ? r.tcw : null,
+      tcr: typeof r.tcr === 'number' && Number.isFinite(r.tcr) ? r.tcr : null,
     };
   } catch {
     return null;
@@ -263,6 +304,45 @@ function parseRecord(line: string): SpoolRecord | null {
 
 function hostOf(record: SpoolRecord): ToolHost {
   return record.h ?? 'claude';
+}
+
+interface HookUsage {
+  messageId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
+
+/**
+ * Turns optional spool usage fields into a `model_usage` row.
+ *
+ * Cursor reports `input_tokens` as total input including cache. Claude Code's
+ * transcript (and our pricing) split those apart, so the cache portions are
+ * subtracted here before insert — otherwise cache would be billed twice.
+ */
+function usageFromRecord(record: SpoolRecord): HookUsage | null {
+  if (typeof record.m !== 'string' || record.m.length === 0) return null;
+  if (typeof record.ti !== 'number' || typeof record.to !== 'number') return null;
+
+  const cacheWrite = typeof record.tcw === 'number' ? record.tcw : 0;
+  const cacheRead = typeof record.tcr === 'number' ? record.tcr : 0;
+  const inputTokens = Math.max(record.ti - cacheWrite - cacheRead, 0);
+
+  // generation_id (stored as pid) is unique per turn on Cursor; fall back to
+  // the event timestamp so a stop without one still dedupes on re-ingest.
+  const turnKey = record.pid && record.pid.length > 0 ? record.pid : record.t;
+  const messageId = createHash('sha1').update(`cursor:${record.sid}:${turnKey}`).digest('hex');
+
+  return {
+    messageId,
+    model: record.m,
+    inputTokens,
+    outputTokens: record.to,
+    cacheCreationInputTokens: cacheWrite,
+    cacheReadInputTokens: cacheRead,
+  };
 }
 
 /**

@@ -98,6 +98,26 @@ export interface SpoolRecord {
   dur: number | null;
   /** Host that captured the event. Short key to keep lines small. */
   h?: ToolHost;
+  /**
+   * Model slug when the host reported one on a turn-ending event.
+   *
+   * Cursor's `stop` payload carries this; Claude Code's hooks do not (usage
+   * comes from the transcript instead). Optional so older spool lines and
+   * Claude events stay valid without a migration.
+   */
+  m?: string | null;
+  /**
+   * Token counts from a host that puts them on the hook payload (Cursor
+   * `stop`). Claude Code never sets these — `captureModelUsage` reads the
+   * transcript. Short keys keep the line inside the atomic-append budget.
+   *
+   * Cursor's `input_tokens` is total input including cache; ingest normalises
+   * to the Claude-shaped split before writing `model_usage`.
+   */
+  ti?: number | null;
+  to?: number | null;
+  tcw?: number | null;
+  tcr?: number | null;
 }
 
 /** A row of `events` as read back from SQLite. */

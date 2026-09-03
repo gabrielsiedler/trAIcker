@@ -27,7 +27,7 @@ import { deleteManualEntry, findOverlaps, insertManualEntry, listManualEntries }
 import { parseDay, parseDuration, parseTimeOfDay, toUtc } from '../core/parse.js';
 import { localDay, localOffsetMinutes, toHours, toMs, WEEK_START_DAYS, type WeekStart } from '../core/time.js';
 import { isManualKind } from '../core/types.js';
-import { dailyCostTotals, modelUsageTotals, projectCostTotals } from '../report/cost.js';
+import { dailyCostTotals, hostCostTotals, modelUsageTotals, projectCostTotals } from '../report/cost.js';
 import { projectDays, projectTotals, resolveRange, timeline, type DateRange } from '../report/queries.js';
 import {
   buildTimesheet,
@@ -135,6 +135,14 @@ export function createApp(db: Db, initialConfig: TraickerConfig) {
       days: projectDays(db, range, filter)
         .map(withHours)
         .map((row) => withCost(row, costByDay.get(`${row.local_day} ${row.project_id}`))),
+      // Per-agent spend for the timeline strip: same range as totals/days, so
+      // a Claude vs Cursor split always lines up with the project total above it.
+      hostCosts: hostCostTotals(db, range, config, filter).map((c) => ({
+        project_id: c.project_id,
+        host: c.host,
+        cost_usd: c.cost_usd,
+        cost_partially_priced: c.partiallyPriced,
+      })),
     });
   });
 

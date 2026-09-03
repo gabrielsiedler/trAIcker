@@ -56,10 +56,24 @@ export interface TimelineSpan {
   truncated_by: string | null;
 }
 
+/** Estimated LLM spend for one coding agent on one project, over the summary range. */
+export interface HostCost {
+  project_id: number;
+  host: 'claude' | 'cursor';
+  cost_usd: number | null;
+  cost_partially_priced?: boolean;
+}
+
 export interface SummaryResponse {
   range: DateRange;
   totals: ProjectTotal[];
   days: ProjectDay[];
+  /**
+   * Per-agent spend for the timeline. Optional because an older server omits
+   * it — the strip then shows duration per harness and keeps cost at project
+   * level only.
+   */
+  hostCosts?: HostCost[];
 }
 
 export interface ModelUsage {

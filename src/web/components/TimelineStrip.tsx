@@ -8,6 +8,7 @@ import {
   localTime,
   projectColor,
   type ExclusionConflict,
+  type HostCost,
   type ProjectDay,
   type TimelineSpan,
 } from '../api.js';
@@ -26,11 +27,17 @@ interface Props {
    * `byDay` in App.tsx), so a project's cost here is that one day's spend.
    */
   days: ProjectDay[];
+  /**
+   * Estimated spend per coding agent over the same range as `days`. Optional
+   * so an older summary payload still draws the strip (duration per harness,
+   * cost only on the project total).
+   */
+  hostCosts?: HostCost[];
   /** Called after an exclusion is saved or removed, so the page refetches. */
   onChanged: () => void;
 }
 
-const LABEL_WIDTH = 150;
+const LABEL_WIDTH = 200;
 const RIGHT_PAD = 16;
 const CHART_WIDTH = 900;
 const FOCUS_HEIGHT = 16;
@@ -39,8 +46,12 @@ const AGENT_GAP = 2;
 /** Room between the two agents of one project, and between projects. */
 const HOST_GAP = 12;
 const PROJECT_GAP = 24;
-/** Strip of the left margin reserved for the per-agent mark, right of the project name. */
-const HOST_GUTTER = 20;
+/**
+ * Left-margin strip for the per-agent mark and its duration/cost. Wide enough
+ * for "2h 15m" + "$12.34" next to the mark without colliding with the project
+ * name column.
+ */
+const HOST_GUTTER = 78;
 const MARK_SIZE = 13;
 const AXIS_HEIGHT = 26;
 const PLOT_WIDTH = CHART_WIDTH - LABEL_WIDTH - RIGHT_PAD;
@@ -122,7 +133,7 @@ function fromLocalInput(value: string): Date {
   return new Date(value);
 }
 
-export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
+export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }: Props) {
   const clipId = useId().replace(/:/g, '');
   const [hovered, setHovered] = useState<TimelineSpan | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -229,6 +240,7 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
     if (visible.length === 0) return null;
 
     const costByProject = new Map(days.map((d) => [d.project_id, d.cost_usd ?? null]));
+    const costByHost = new Map(hostCosts.map((c) => [`${c.project_id}|${c.host}`, c.cost_usd ?? null]));
 
     // The axis is built from what is shown, not from the whole range: filtering
     // to one client should zoom to that client's hours rather than leave the
@@ -293,12 +305,18 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
           // not as a project boundary.
           const dividerY = index === 0 ? null : y + offset + HOST_GAP / 2;
           if (index > 0) offset += HOST_GAP;
+          // Same billable envelope the project total uses, scoped to this agent
+          // — so Claude's hours and Cursor's hours add up to the number under
+          // the project name.
+          const total = buckets.billable.reduce((sum, s) => sum + s.duration_ms, 0);
           const hostRow = {
             host: h,
             focus: buckets.focus,
             billable: buckets.billable,
             packed,
             laneCount,
+            total,
+            cost: costByHost.get(`${projectId}|${h}`) ?? null,
             dividerY,
             y: y + offset,
             height,
@@ -311,10 +329,7 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
         // same total the invoice is built from, so the label under the name
         // answers "how much of this day" with the number that actually counts.
         // Summed across both agents: the invoice does not care which one ran.
-        const total = hosts.reduce(
-          (sum, h) => sum + h.billable.reduce((inner, s) => inner + s.duration_ms, 0),
-          0,
-        );
+        const total = hosts.reduce((sum, h) => sum + h.total, 0);
         const row = {
           projectId,
           name: entry.name,
@@ -331,7 +346,7 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
       });
 
     return { rows, height: y + AXIS_HEIGHT, domainStart, domainEnd };
-  }, [spans, filter, days]);
+  }, [spans, filter, days, hostCosts]);
 
   // Clamped rather than reset, so a live day that's still accumulating spans
   // keeps extending the default full view instead of freezing it — and so a
@@ -524,27 +539,55 @@ export function TimelineStrip({ spans, filter, days, onChanged }: Props) {
                 {formatCost(row.cost)}
               </text>
             )}
-            {row.hosts.map((hostRow) => (
-              <g key={`h-${hostRow.host}`}>
-                {/* Only from the second agent on — a single-agent project gets
-                    no rule under nothing. */}
-                {hostRow.dividerY !== null && (
-                  <line
-                    x1={LABEL_WIDTH - HOST_GUTTER}
-                    x2={CHART_WIDTH - RIGHT_PAD}
-                    y1={hostRow.dividerY}
-                    y2={hostRow.dividerY}
-                    className="host-divider"
-                  />
-                )}
-                <g transform={`translate(${LABEL_WIDTH - HOST_GUTTER}, ${hostRow.y + (FOCUS_HEIGHT - MARK_SIZE) / 2})`}>
-                  {/* First child, so it is the one the browser reads as the
-                      hover title for the mark. */}
-                  <title>{`${row.name} — ${HOST_LABEL[hostRow.host]}`}</title>
-                  <HostMark host={hostRow.host} size={MARK_SIZE} />
+            {row.hosts.map((hostRow) => {
+              // Duration + cost sit left of the mark, right-aligned into the
+              // gutter. Shown whenever the project has more than one agent —
+              // a single-agent row already has the same numbers under the
+              // project name, and repeating them would just crowd the mark.
+              const showHostStats = row.hosts.length > 1;
+              const statsX = LABEL_WIDTH - MARK_SIZE - 6;
+              return (
+                <g key={`h-${hostRow.host}`}>
+                  {/* Only from the second agent on — a single-agent project gets
+                      no rule under nothing. */}
+                  {hostRow.dividerY !== null && (
+                    <line
+                      x1={LABEL_WIDTH - HOST_GUTTER}
+                      x2={CHART_WIDTH - RIGHT_PAD}
+                      y1={hostRow.dividerY}
+                      y2={hostRow.dividerY}
+                      className="host-divider"
+                    />
+                  )}
+                  {showHostStats && hostRow.total > 0 && (
+                    <text
+                      x={statsX}
+                      y={hostRow.y + FOCUS_HEIGHT - 3}
+                      className="host-total"
+                      textAnchor="end"
+                    >
+                      {formatDuration(hostRow.total)}
+                    </text>
+                  )}
+                  {showHostStats && hostRow.cost !== null && (
+                    <text
+                      x={statsX}
+                      y={hostRow.y + FOCUS_HEIGHT + 9}
+                      className="host-cost"
+                      textAnchor="end"
+                    >
+                      {formatCost(hostRow.cost)}
+                    </text>
+                  )}
+                  <g transform={`translate(${LABEL_WIDTH - MARK_SIZE}, ${hostRow.y + (FOCUS_HEIGHT - MARK_SIZE) / 2})`}>
+                    {/* First child, so it is the one the browser reads as the
+                        hover title for the mark. */}
+                    <title>{`${row.name} — ${HOST_LABEL[hostRow.host]}`}</title>
+                    <HostMark host={hostRow.host} size={MARK_SIZE} />
+                  </g>
                 </g>
-              </g>
-            ))}
+              );
+            })}
           </g>
         ))}
 

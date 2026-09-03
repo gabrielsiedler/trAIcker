@@ -27,7 +27,10 @@ you want.
 It draws itself two ways, picked from the data and not from the range you chose:
 
 - **By hour**, up to two days: real start and end times, with one lane per
-  concurrent agent, so parallelism shows up as height.
+  concurrent agent, so parallelism shows up as height. Each coding agent
+  (Claude Code, Cursor) gets its own sub-row. When a project ran on more than
+  one, the gutter next to each mark shows that agent's billable time and
+  estimated LLM spend, under the project total.
 - **By day**, past that: one bar per project per day, on a single scale. Four
   hundred spans across a 750-pixel axis put a two-minute agent run at under a
   pixel, and the strip turns into a smear you can't read or trust. So past a

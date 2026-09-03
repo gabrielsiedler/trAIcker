@@ -38,6 +38,11 @@ hash. Run any of it as many times as you like.
 `sessionStart`, `sessionEnd`, `beforeSubmitPrompt`, `subagentStart`,
 `subagentStop`, `stop`, and `postToolUse` matched to `Task`. The same hook
 binary maps these onto the Claude-shaped event names the spool already uses.
+Cursor's `stop` also carries `model` (and optional `model_id`) plus token
+totals for the turn; those land in `model_usage` so the Models tab covers
+Cursor the same way transcript parsing covers Claude Code. Auto mode reports
+the slug as `default`; trAIcker stores that as `auto`. The underlying model
+Auto picked is not in the payload.
 
 Each one is registered with a 5 second timeout (Claude Code's default is 600)
 and the hook kills itself after 2.

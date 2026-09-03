@@ -259,6 +259,95 @@ describe.skipIf(!BUILT)('hook binary', () => {
     expect(record.r).toBe('completed');
   });
 
+  it('captures model and token totals from a Cursor stop', () => {
+    runHook({
+      conversation_id: 'conv-usage',
+      generation_id: 'gen-usage-1',
+      hook_event_name: 'stop',
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      model: 'composer-1',
+      status: 'completed',
+      loop_count: 0,
+      input_tokens: 12_000,
+      output_tokens: 800,
+      cache_read_tokens: 4_000,
+      cache_write_tokens: 1_000,
+      // Must never reach the spool — same size trap as last_assistant_message.
+      text: 'SECRET_ASSISTANT_REPLY '.repeat(200),
+    });
+
+    const line = spoolLines()[0]!;
+    const record = JSON.parse(line) as {
+      e: string;
+      sid: string;
+      pid: string;
+      m: string;
+      ti: number;
+      to: number;
+      tcw: number;
+      tcr: number;
+      h: string;
+    };
+    expect(record.e).toBe('Stop');
+    expect(record.sid).toBe('conv-usage');
+    expect(record.pid).toBe('gen-usage-1');
+    expect(record.m).toBe('composer-1');
+    expect(record.ti).toBe(12_000);
+    expect(record.to).toBe(800);
+    expect(record.tcw).toBe(1_000);
+    expect(record.tcr).toBe(4_000);
+    expect(record.h).toBe('cursor');
+    expect(line).not.toContain('SECRET_ASSISTANT_REPLY');
+    expect(line.length).toBeLessThan(600);
+  });
+
+  it('prefers model_id and maps Auto mode default → auto', () => {
+    runHook({
+      conversation_id: 'conv-auto',
+      generation_id: 'gen-auto-1',
+      hook_event_name: 'stop',
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      model: 'default',
+      model_id: 'default',
+      status: 'completed',
+      input_tokens: 100,
+      output_tokens: 20,
+    });
+
+    const auto = JSON.parse(spoolLines()[0]!) as { m: string };
+    expect(auto.m).toBe('auto');
+
+    runHook({
+      conversation_id: 'conv-id',
+      generation_id: 'gen-id-1',
+      hook_event_name: 'stop',
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      model: 'default',
+      model_id: 'grok-4.6',
+      status: 'completed',
+      input_tokens: 50,
+      output_tokens: 10,
+    });
+
+    const named = JSON.parse(spoolLines()[1]!) as { m: string };
+    expect(named.m).toBe('grok-4.6');
+  });
+
+  it('omits usage fields when a Cursor stop has no token totals', () => {
+    runHook({
+      conversation_id: 'conv-bare',
+      hook_event_name: 'stop',
+      workspace_roots: [projectDir.replace(/\\/g, '/')],
+      model: 'composer-1',
+      status: 'completed',
+    });
+
+    const record = JSON.parse(spoolLines()[0]!) as Record<string, unknown>;
+    expect(record.e).toBe('Stop');
+    expect(record.m).toBeUndefined();
+    expect(record.ti).toBeUndefined();
+  });
+
   it('maps Cursor postToolUse duration field onto PostToolUse', () => {
     runHook({
       conversation_id: 'conv-3',

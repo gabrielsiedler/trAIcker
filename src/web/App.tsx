@@ -8,6 +8,7 @@ import {
   todayLocal,
   type BillableProject,
   type DateRange,
+  type HostCost,
   type ModelPricingEntry,
   type ModelUsage,
   type ProjectDay,
@@ -103,6 +104,7 @@ export function App() {
   const [customTo, setCustomTo] = useState(todayLocal());
   const [totals, setTotals] = useState<ProjectTotal[]>([]);
   const [days, setDays] = useState<ProjectDay[]>([]);
+  const [hostCosts, setHostCosts] = useState<HostCost[]>([]);
   const [loadedRange, setLoadedRange] = useState<DateRange | null>(null);
   const [spans, setSpans] = useState<TimelineSpan[]>([]);
   const [models, setModels] = useState<ModelUsage[]>([]);
@@ -171,6 +173,7 @@ export function App() {
 
       setTotals(summary.totals);
       setDays(summary.days);
+      setHostCosts(summary.hostCosts ?? []);
       setLoadedRange(summary.range);
       setSpans(timeline.spans);
       setModels(modelUsage.models);
@@ -416,6 +419,7 @@ export function App() {
                 spans={spans}
                 filter={laneFilter}
                 days={days}
+                hostCosts={hostCosts}
                 onChanged={() => void load()}
               />
             )}

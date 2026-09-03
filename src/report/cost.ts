@@ -219,3 +219,65 @@ export function dailyCostTotals(db: Db, range: DateRange, config: TraickerConfig
 
   return [...byDay.values()].map(({ local_day, project_id, ...acc }) => ({ local_day, project_id, ...settle(acc) }));
 }
+
+export interface HostCostRow {
+  project_id: number;
+  host: 'claude' | 'cursor';
+  cost_usd: number | null;
+  partiallyPriced: boolean;
+}
+
+interface DailyHostUsageRow extends DailyUsageRow {
+  project_id: number;
+  host: 'claude' | 'cursor';
+}
+
+/**
+ * Estimated spend per project per coding agent (Claude Code / Cursor).
+ *
+ * `model_usage` itself has no host column — cost is attributed by joining each
+ * turn's session to the host already stored on `events`. Orphan turns (no
+ * matching event) default to Claude Code, which is what every pre-host row was.
+ */
+export function hostCostTotals(
+  db: Db,
+  range: DateRange,
+  config: TraickerConfig,
+  projectFilter?: string,
+): HostCostRow[] {
+  const rows = db
+    .prepare(
+      `SELECT m.local_day, m.project_id, m.model,
+              COALESCE(h.host, 'claude')         AS host,
+              SUM(m.input_tokens)                AS input_tokens,
+              SUM(m.output_tokens)                AS output_tokens,
+              SUM(m.cache_creation_input_tokens)  AS cache_creation_input_tokens,
+              SUM(m.cache_read_input_tokens)      AS cache_read_input_tokens,
+              COUNT(*)                           AS turn_count
+       FROM model_usage m
+       JOIN projects p ON p.id = m.project_id
+       LEFT JOIN (
+         SELECT session_id, MIN(host) AS host
+         FROM events
+         GROUP BY session_id
+       ) h ON h.session_id = m.session_id
+       WHERE m.local_day BETWEEN ? AND ?${filterClause(projectFilter)}
+       GROUP BY m.local_day, m.project_id, m.model, COALESCE(h.host, 'claude')`,
+    )
+    .all(...params(range, projectFilter)) as DailyHostUsageRow[];
+
+  const byHost = new Map<string, CostAccumulator & { project_id: number; host: 'claude' | 'cursor' }>();
+
+  for (const row of rows) {
+    const host = row.host === 'cursor' ? 'cursor' : 'claude';
+    const key = `${row.project_id}|${host}`;
+    let acc = byHost.get(key);
+    if (!acc) {
+      acc = { project_id: row.project_id, host, costSum: 0, pricedRows: 0, totalRows: 0 };
+      byHost.set(key, acc);
+    }
+    accumulate(acc, row, config);
+  }
+
+  return [...byHost.values()].map(({ project_id, host, ...acc }) => ({ project_id, host, ...settle(acc) }));
+}

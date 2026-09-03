@@ -207,4 +207,50 @@ describe('spool -> sqlite -> aggregate', () => {
     ingest(db, config);
     expect(db.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
   });
+
+  it('folds Cursor stop token totals into model_usage', () => {
+    spool('cu', {
+      e: 'Stop',
+      t: '2026-08-10T15:00:00.000Z',
+      cwd: CLIENT_A,
+      sid: 'cu',
+      pid: 'gen-9',
+      h: 'cursor',
+      m: 'composer-1',
+      // Cursor reports total input including cache; ingest must split them.
+      ti: 10_000,
+      to: 500,
+      tcw: 2_000,
+      tcr: 3_000,
+    });
+
+    const result = ingest(db, config);
+    expect(result.eventsInserted).toBe(1);
+    expect(result.usageDays).toEqual([DAY]);
+
+    const row = db
+      .prepare(
+        `SELECT model, input_tokens, output_tokens,
+                cache_creation_input_tokens, cache_read_input_tokens
+         FROM model_usage`,
+      )
+      .get() as {
+      model: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_input_tokens: number;
+      cache_read_input_tokens: number;
+    };
+
+    expect(row.model).toBe('composer-1');
+    expect(row.input_tokens).toBe(5_000); // 10000 - 2000 - 3000
+    expect(row.output_tokens).toBe(500);
+    expect(row.cache_creation_input_tokens).toBe(2_000);
+    expect(row.cache_read_input_tokens).toBe(3_000);
+
+    // Re-ingest must not double-count.
+    const again = ingest(db, config);
+    expect(again.usageDays).toEqual([]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM model_usage').get()).toEqual({ n: 1 });
+  });
 });

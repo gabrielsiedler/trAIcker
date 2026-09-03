@@ -734,6 +734,20 @@ table.data .muted {
   opacity: 0.75;
 }
 
+/* Same pair, scoped to one coding agent inside a multi-agent project. Sits in
+   the gutter next to the mark so Claude's hours and Cursor's hours stay
+   readable without replacing the project total. */
+.timeline .host-total {
+  fill: var(--muted);
+  font-size: 9px;
+}
+
+.timeline .host-cost {
+  fill: var(--muted);
+  font-size: 8px;
+  opacity: 0.75;
+}
+
 .timeline .span {
   cursor: pointer;
   transition: opacity 0.1s;

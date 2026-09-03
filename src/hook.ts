@@ -284,6 +284,12 @@ function buildRecord(
       ? num(payload['duration_ms']) ?? num(payload['duration'])
       : null;
 
+  // Cursor's stop carries model + token totals for the turn. Claude Code never
+  // puts either on the hook — those come from the transcript later. Keep the
+  // assistant text out: it can be megabytes and would break the line-size
+  // invariant that keeps concurrent appends atomic.
+  const usage = eventType === 'Stop' ? cursorUsage(payload) : null;
+
   return {
     v: 1,
     e: eventType,
@@ -313,7 +319,45 @@ function buildRecord(
     })(),
     dur: duration,
     h: detectHost(payload),
+    ...(usage ?? {}),
   };
+}
+
+/**
+ * Pulls model + token totals off a Cursor stop payload.
+ *
+ * Returns null when the host did not report a usable pair (Claude Code, or an
+ * older Cursor build that omits tokens). Partial numbers are dropped rather
+ * than stored as zeros — a missing count is not the same as a free turn.
+ */
+function cursorUsage(
+  payload: Record<string, unknown>,
+): Pick<SpoolRecord, 'm' | 'ti' | 'to' | 'tcw' | 'tcr'> | null {
+  const model = cursorModelName(payload);
+  const input = num(payload['input_tokens']);
+  const output = num(payload['output_tokens']);
+  if (model === null || input === null || output === null) return null;
+
+  return {
+    m: model,
+    ti: input,
+    to: output,
+    tcw: num(payload['cache_write_tokens']) ?? 0,
+    tcr: num(payload['cache_read_tokens']) ?? 0,
+  };
+}
+
+/**
+ * Cursor's hook schema exposes both a legacy `model` slug and an optional
+ * structured `model_id`. Auto mode reports the legacy value as `"default"`
+ * (display name "Auto" in the UI) and never says which backend model ran —
+ * that routing stays inside Cursor. Prefer `model_id` when present, and map
+ * the Auto placeholder to `auto` so the Models tab matches the picker label.
+ */
+function cursorModelName(payload: Record<string, unknown>): string | null {
+  const raw = str(payload['model_id']) ?? str(payload['model']);
+  if (raw === null) return null;
+  return raw === 'default' ? 'auto' : raw;
 }
 
 /** Cursor payloads use camelCase hook names or conversation_id; Claude uses TrackedEvent names. */

@@ -39,7 +39,10 @@ export function sync(db: Db, config: TraickerConfig, extraDays: readonly string[
   // interval-merge dependency on spans, so it rebuilds off its own affected
   // days rather than joining the same rebuild set.
   const usageResult = captureModelUsage(db, config);
-  rollupModelUsage(db, usageResult.affectedDays);
+  // Hook-sourced usage (Cursor stop) lands during ingest; transcript-sourced
+  // usage (Claude Code) lands here. Roll both up together so a Cursor-only
+  // day still refreshes the Models tab.
+  rollupModelUsage(db, [...new Set([...usageResult.affectedDays, ...ingestResult.usageDays])]);
 
   // Today and yesterday are always rebuilt even with no new events: spans still
   // in flight are recorded as 'open' and grow until they close or hit a cap.
