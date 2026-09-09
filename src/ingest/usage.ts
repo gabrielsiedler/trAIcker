@@ -1,10 +1,10 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 
 import type { TraickerConfig } from '../core/config.js';
 import type { Db } from '../core/db.js';
 import { localDay, localOffsetMinutes } from '../core/time.js';
 import { resolveProjectId } from './index.js';
-import { subagentTranscripts, transcriptIndex } from './titles.js';
+import { readRange, subagentTranscripts, transcriptIndex } from './titles.js';
 
 export interface UsageCaptureResult {
   /** Transcript files read, not sessions — one session can own several. */
@@ -184,26 +184,6 @@ export function captureModelUsage(db: Db, config: TraickerConfig): UsageCaptureR
 
   result.affectedDays = [...affected].sort();
   return result;
-}
-
-/**
- * Reads only `[start, end)` of a file, decoded as UTF-8.
- *
- * `start` is always a byte offset just past a `\n` written by an earlier
- * pass (or 0), and `\n` is a single ASCII byte that never appears as a UTF-8
- * continuation byte, so this always lands on a code-point boundary — safe to
- * decode as UTF-8 without stitching it back onto the bytes before it.
- */
-function readRange(file: string, start: number, end: number): string {
-  const fd = openSync(file, 'r');
-  try {
-    const length = end - start;
-    const buf = Buffer.alloc(length);
-    readSync(fd, buf, 0, length, start);
-    return buf.toString('utf8');
-  } finally {
-    closeSync(fd);
-  }
 }
 
 /** Pulls model + usage out of one `type: "assistant"` transcript line. */

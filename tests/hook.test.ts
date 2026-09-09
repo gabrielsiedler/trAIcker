@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -156,6 +156,40 @@ describe.skipIf(!BUILT)('hook binary', () => {
 
     expect(result.stdout).toBe('');
   });
+
+  it('gives up on a writer that never closes the pipe', async () => {
+    // Regression. The read used to be readFileSync(0), which blocks until the
+    // writer closes stdin, so a host that was slow to close held the user's
+    // prompt for as long as it felt like. The watchdog was no help against a
+    // synchronous read. This is what a 5s UserPromptSubmit timeout looked like
+    // from the outside, with the payload itself perfectly intact.
+    const started = Date.now();
+    const child = spawn(process.execPath, [HOOK], {
+      env: { ...process.env, TRAICKER_DATA_DIR: dataDir, CLAUDE_PROJECT_DIR: projectDir },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+
+    child.stdin.write(
+      JSON.stringify({
+        session_id: 'stalled',
+        cwd: projectDir.replace(/\\/g, '/'),
+        hook_event_name: 'UserPromptSubmit',
+        prompt: 'hello',
+        prompt_id: 'p1',
+      }),
+    );
+    // No end() on purpose: the payload is complete, the pipe is not closed.
+
+    const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
+    child.stdin.destroy();
+
+    expect(code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(4_000);
+
+    // Whatever arrived by the deadline still gets recorded.
+    const record = JSON.parse(spoolLines()[0]!) as { sid: string };
+    expect(record.sid).toBe('stalled');
+  }, 15_000);
 
   it('exits cleanly on malformed input rather than blocking the session', () => {
     const result = spawnSync(process.execPath, [HOOK], {

@@ -13,10 +13,17 @@ import {
   type TimelineSpan,
 } from '../api.js';
 import { axisTicks } from '../axis.js';
-import { HostMark } from './HostMark.js';
+import { HostMark, type HostId } from './HostMark.js';
 
 export type BillableFilter = 'billable' | 'other' | 'all';
-export type TimelineHost = 'claude' | 'cursor';
+/**
+ * A sub-row of a project. Two of these are coding agents; `manual` is a
+ * pseudo-host, and gets its own row for the same reason the agents get theirs:
+ * the blocks came from somewhere else, and drawing them inside an agent's row
+ * would claim that agent produced them. ("Lane" is already taken here — it is
+ * one line of agent concurrency inside a sub-row.)
+ */
+export type TimelineHost = HostId;
 
 interface Props {
   spans: TimelineSpan[];
@@ -55,9 +62,49 @@ const HOST_GUTTER = 78;
 const MARK_SIZE = 13;
 const AXIS_HEIGHT = 26;
 const PLOT_WIDTH = CHART_WIDTH - LABEL_WIDTH - RIGHT_PAD;
-/** Claude on top, always — a project's two sub-rows must not swap order between days. */
-const HOST_ORDER: TimelineHost[] = ['claude', 'cursor'];
-const HOST_LABEL: Record<TimelineHost, string> = { claude: 'Claude Code', cursor: 'Cursor' };
+/**
+ * Claude on top, always — a project's sub-rows must not swap order between
+ * days. Hand-logged time goes last: it is the one row that is not an agent.
+ */
+const HOST_ORDER: TimelineHost[] = ['claude', 'cursor', 'manual'];
+const HOST_LABEL: Record<TimelineHost, string> = {
+  claude: 'Claude Code',
+  cursor: 'Cursor',
+  manual: 'Manual entry',
+};
+
+/**
+ * Which sub-row a span is drawn in.
+ *
+ * A manual entry is stored under the host it displaces (see `manualSpans`),
+ * because that is what keeps the billable envelope one block per project. The
+ * strip splits it back out for display only — nothing about the numbers moves.
+ */
+function hostOf(span: TimelineSpan): TimelineHost {
+  return span.source === 'manual' ? 'manual' : span.host;
+}
+
+/** Half-open overlap between two spans, in ms. */
+function overlaps(a: TimelineSpan, b: TimelineSpan): boolean {
+  return Date.parse(a.start_utc) < Date.parse(b.end_utc) && Date.parse(b.start_utc) < Date.parse(a.end_utc);
+}
+
+/**
+ * How much of `windows` falls inside `span`.
+ *
+ * Safe to add up without merging first: hand-logged entries cannot overlap each
+ * other (`findOverlaps` refuses the insert), which is the only thing this is
+ * ever called with.
+ */
+function overlapMs(span: TimelineSpan, windows: readonly TimelineSpan[]): number {
+  const start = Date.parse(span.start_utc);
+  const end = Date.parse(span.end_utc);
+  let sum = 0;
+  for (const w of windows) {
+    sum += Math.max(0, Math.min(end, Date.parse(w.end_utc)) - Math.max(start, Date.parse(w.start_utc)));
+  }
+  return sum;
+}
 
 /** Below this a zoomed-in window stops meaning anything — spans this short can't be told apart at 900px anyway. */
 const MIN_WINDOW_MS = 60_000;
@@ -228,9 +275,36 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
     }
   };
 
+  // Paused while the window is hidden: a now-line nobody can see does not need
+  // to move, and the re-render it triggers is not free. Catches up on return so
+  // the line is never drawn in the wrong place.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
-    return () => clearInterval(timer);
+    let timer: number | undefined;
+
+    const tick = (): void => setNow(Date.now());
+    const start = (): void => {
+      if (timer === undefined) timer = window.setInterval(tick, NOW_TICK_MS);
+    };
+    const stop = (): void => {
+      if (timer !== undefined) window.clearInterval(timer);
+      timer = undefined;
+    };
+    const onVisibility = (): void => {
+      if (document.hidden) {
+        stop();
+        return;
+      }
+      tick();
+      start();
+    };
+
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const model = useMemo(() => {
@@ -263,27 +337,50 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
         name: string;
         isBillable: boolean;
         color: string | null;
-        // One entry per agent that actually ran here. A project driven from
-        // Claude Code only never grows an empty Cursor sub-row.
+        // One entry per agent that actually ran here, plus `manual` when there
+        // is hand-logged time. A project driven from Claude Code only never
+        // grows an empty Cursor sub-row.
         hosts: Map<TimelineHost, HostBuckets>;
       }
     >();
-    for (const s of visible) {
+
+    const bucketsFor = (s: TimelineSpan, host: TimelineHost): HostBuckets => {
       let entry = byProject.get(s.project_id);
       if (!entry) {
         entry = { name: s.project_name, isBillable: s.billable === 1, color: s.color, hosts: new Map() };
         byProject.set(s.project_id, entry);
       }
-      let buckets = entry.hosts.get(s.host);
+      let buckets = entry.hosts.get(host);
       if (!buckets) {
         buckets = { focus: [], agent: [], billable: [] };
-        entry.hosts.set(s.host, buckets);
+        entry.hosts.set(host, buckets);
       }
+      return buckets;
+    };
+
+    // Measured work first, so the envelopes below can be placed against it.
+    const measured = visible.filter((s) => s.bucket !== 'occupancy');
+    for (const s of measured) {
+      const buckets = bucketsFor(s, hostOf(s));
       // Occupancy is a derived envelope, not a third kind of work — it must not
       // be packed into the agent lanes or it would fake extra concurrency.
       if (s.bucket === 'focus') buckets.focus.push(s);
-      else if (s.bucket === 'occupancy') buckets.billable.push(s);
       else buckets.agent.push(s);
+    }
+
+    // An envelope stays with the agent whose work it covers. The exception is a
+    // block built out of hand-logged time alone — a meeting on a project you
+    // did not open an agent on that day. Leaving that one under Claude would
+    // draw an empty Claude sub-row carrying an envelope over nothing, so it
+    // follows the entry that produced it. Nothing about the totals moves: an
+    // envelope is counted once wherever it is drawn.
+    for (const s of visible) {
+      if (s.bucket !== 'occupancy') continue;
+      const covering = measured.filter(
+        (m) => m.project_id === s.project_id && m.host === s.host && overlaps(m, s),
+      );
+      const fromManualOnly = covering.length > 0 && covering.every((m) => m.source === 'manual');
+      bucketsFor(s, fromManualOnly ? 'manual' : s.host).billable.push(s);
     }
 
     let y = 0;
@@ -295,20 +392,44 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
         return focusCount(b[1].hosts) - focusCount(a[1].hosts);
       })
       .map(([projectId, entry]) => {
+        // The hand-logged part of this project, and where it currently sits.
+        // A manual entry is stored under the agent it displaces, so its minutes
+        // are inside that agent's envelope — the gutter number under the burst
+        // would otherwise silently include an hour nobody's agent worked. Each
+        // agent gives those minutes up, the clock row collects them, and the
+        // sub-rows still add up to the project total.
+        const manualWindows = entry.hosts.get('manual')?.focus ?? [];
+        const manualInside = new Map<TimelineHost, number>();
+        for (const [h, buckets] of entry.hosts) {
+          if (h === 'manual') continue;
+          manualInside.set(
+            h,
+            buckets.billable.reduce((sum, s) => sum + overlapMs(s, manualWindows), 0),
+          );
+        }
+        const manualCredit = [...manualInside.values()].reduce((sum, ms) => sum + ms, 0);
+
         let offset = 0;
         const hosts = HOST_ORDER.filter((h) => entry.hosts.has(h)).map((h, index) => {
           const buckets = entry.hosts.get(h) as HostBuckets;
           const { packed, laneCount } = packLanes(buckets.agent);
-          const height = FOCUS_HEIGHT + 4 + laneCount * (AGENT_HEIGHT + AGENT_GAP);
+          // A row with no agent runs at all — hand-logged time is the usual
+          // case — gets no concurrency strip under its blocks, so it does not
+          // sit a phantom lane away from the row above it.
+          const height =
+            buckets.agent.length === 0 ? FOCUS_HEIGHT : FOCUS_HEIGHT + 4 + laneCount * (AGENT_HEIGHT + AGENT_GAP);
           // The rule sits in the middle of the gap it opened, so it reads as
           // "these two belong to the same project but are different agents",
           // not as a project boundary.
           const dividerY = index === 0 ? null : y + offset + HOST_GAP / 2;
           if (index > 0) offset += HOST_GAP;
-          // Same billable envelope the project total uses, scoped to this agent
-          // — so Claude's hours and Cursor's hours add up to the number under
-          // the project name.
-          const total = buckets.billable.reduce((sum, s) => sum + s.duration_ms, 0);
+          // Same billable envelope the project total uses, scoped to this
+          // agent — so Claude's hours, Cursor's hours and hand-logged time add
+          // up to the number under the project name. Every millisecond of every
+          // envelope lands in exactly one of these: an agent keeps what it
+          // worked, and hands the rest to the clock row.
+          const envelope = buckets.billable.reduce((sum, s) => sum + s.duration_ms, 0);
+          const total = h === 'manual' ? envelope + manualCredit : envelope - (manualInside.get(h) ?? 0);
           const hostRow = {
             host: h,
             focus: buckets.focus,
@@ -658,6 +779,12 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
                   // thin.
                   const hitWidth = Math.max(visibleWidth, 8);
                   const hitX = x1 - (hitWidth - visibleWidth) / 2;
+                  // Hand-logged time is corrected by editing the entry, not by
+                  // an exclusion: aggregation rebuilds manual spans straight
+                  // from `manual_entries` and never runs an exclusion over
+                  // them, so a click here would open a form that silently does
+                  // nothing to the block it was opened from.
+                  const excludable = s.source !== 'manual';
                   return (
                     <g key={`f${i}`}>
                       <rect
@@ -666,13 +793,17 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
                         width={hitWidth}
                         height={FOCUS_HEIGHT + 6}
                         fill="transparent"
-                        className="span-hit"
+                        className={excludable ? 'span-hit' : 'span-hit span-hit-plain'}
                         onMouseEnter={() => setHovered(s)}
                         onMouseLeave={() => setHovered(null)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openExclude(s);
-                        }}
+                        onClick={
+                          excludable
+                            ? (event) => {
+                                event.stopPropagation();
+                                openExclude(s);
+                              }
+                            : undefined
+                        }
                       />
                       <rect
                         x={x1}
@@ -681,7 +812,7 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
                         height={FOCUS_HEIGHT}
                         rx={2}
                         fill={color}
-                        className={`span focus-span excludable ${hovered === s ? 'span-hovered' : ''}`}
+                        className={`span focus-span ${excludable ? 'excludable' : 'manual-span'} ${hovered === s ? 'span-hovered' : ''}`}
                         pointerEvents="none"
                       />
                     </g>
@@ -760,6 +891,9 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
         <span className="legend-host">
           <HostMark host="cursor" /> Cursor
         </span>
+        <span className="legend-host">
+          <HostMark host="manual" /> manual entry — hand-logged, no agent
+        </span>
         <span className="legend-note">colour = project · mark = agent</span>
         <span className="legend-note">scroll to zoom · drag to pan</span>
       </div>
@@ -775,7 +909,7 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
             </button>
           </div>
           <span>
-            {selected.project_name} · {HOST_LABEL[selected.host]} · {selected.title ?? '(untitled)'} · block was{' '}
+            {selected.project_name} · {HOST_LABEL[hostOf(selected)]} · {selected.title ?? '(untitled)'} · block was{' '}
             {formatDuration(selected.duration_ms)}
           </span>
           <div className="exclude-range">
@@ -834,13 +968,17 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
             <>
               <strong>{hovered.title ?? '(untitled)'}</strong>
               <span>
-                {hovered.project_name} · {HOST_LABEL[hovered.host]} · {hovered.bucket} · {hovered.source}
+                {hovered.project_name} · {HOST_LABEL[hostOf(hovered)]} · {hovered.bucket} · {hovered.source}
                 {hovered.agent_type ? ` · ${hovered.agent_type}` : ''}
               </span>
               <span>
                 {localTime(hovered.start_utc)} → {localTime(hovered.end_utc)} ({formatDuration(hovered.duration_ms)})
                 {hovered.truncated_by ? ` · cut: ${hovered.truncated_by}` : ''}
-                {hovered.bucket === 'agent' || hovered.bucket === 'focus' ? ' · click to exclude' : ''}
+                {hovered.source === 'manual'
+                  ? ' · edit it under Entries'
+                  : hovered.bucket === 'agent' || hovered.bucket === 'focus'
+                    ? ' · click to exclude'
+                    : ''}
               </span>
             </>
           )}

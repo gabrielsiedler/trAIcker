@@ -625,6 +625,12 @@ table.data .muted {
   color: #9aa4b2;
 }
 
+/* Hand-logged time, so no vendor to borrow a colour from: the clock takes the
+   muted heading grey and reads as "this row is not an agent". */
+.host-mark-manual {
+  color: var(--muted);
+}
+
 .legend-host {
   display: inline-flex;
   align-items: center;
@@ -862,6 +868,13 @@ table.data .muted {
    agent block — see the comment at its render site in TimelineStrip. */
 .timeline .span-hit {
   cursor: pointer;
+}
+
+/* A manual block still gets the padded hover target, but there is nothing to
+   click: it is corrected under Entries, not by an exclusion. */
+.timeline .span-hit-plain,
+.timeline .manual-span {
+  cursor: inherit;
 }
 
 .exclude-panel {

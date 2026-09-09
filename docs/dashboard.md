@@ -30,7 +30,12 @@ It draws itself two ways, picked from the data and not from the range you chose:
   concurrent agent, so parallelism shows up as height. Each coding agent
   (Claude Code, Cursor) gets its own sub-row. When a project ran on more than
   one, the gutter next to each mark shows that agent's billable time and
-  estimated LLM spend, under the project total.
+  estimated LLM spend, under the project total. Manual entries get a sub-row of
+  their own too, marked with a clock: no agent produced them, so putting them in
+  an agent's row would say one did. The clock row shows its hours the same way,
+  and the agent above gives those hours up, so the sub-rows still add up to the
+  project total. It carries no cost, and you correct one by editing the entry
+  under Entries, not by clicking it to exclude time.
 - **By day**, past that: one bar per project per day, on a single scale. Four
   hundred spans across a 750-pixel axis put a two-minute agent run at under a
   pixel, and the strip turns into a smear you can't read or trust. So past a

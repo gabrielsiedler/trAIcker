@@ -41,7 +41,7 @@ export interface ProjectDay extends ProjectTotal {
 
 export interface TimelineSpan {
   bucket: 'focus' | 'agent' | 'occupancy';
-  source: 'prompt_gap' | 'main_turn' | 'subagent' | 'billable_block';
+  source: 'prompt_gap' | 'main_turn' | 'subagent' | 'billable_block' | 'manual';
   host: 'claude' | 'cursor';
   project_id: number;
   project_name: string;

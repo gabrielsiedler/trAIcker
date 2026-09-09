@@ -1,7 +1,7 @@
-export type HostId = 'claude' | 'cursor';
+export type HostId = 'claude' | 'cursor' | 'manual';
 
 /**
- * Brand mark for a coding agent, drawn inline rather than shipped as an asset:
+ * Brand mark for a timeline sub-row, drawn inline rather than shipped as an asset:
  * these sit next to a text label at 15px, so a bitmap would only add a fetch
  * and a blurry edge.
  *
@@ -9,6 +9,9 @@ export type HostId = 'claude' | 'cursor';
  * is the project, not the host), same layout. The mark is what tells them
  * apart at a glance, so it carries each vendor's own colour instead of
  * inheriting the muted heading grey.
+ *
+ * `manual` is not a vendor: it is hand-logged time, which sits in its own
+ * sub-row because nothing observed it. The clock says that much on its own.
  */
 export function HostMark({ host, size = 15 }: { host: HostId; size?: number }) {
   if (host === 'claude') {
@@ -40,6 +43,30 @@ export function HostMark({ host, size = 15 }: { host: HostId; size?: number }) {
             />
           );
         })}
+      </svg>
+    );
+  }
+
+  if (host === 'manual') {
+    // A clock: hand-logged time, the one kind of block no agent produced.
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+        className="host-mark host-mark-manual"
+      >
+        <circle cx={12} cy={12} r={8.5} fill="none" stroke="currentColor" strokeWidth={2} />
+        <path
+          d="M12 7v5.4l3.4 2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     );
   }

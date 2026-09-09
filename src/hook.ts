@@ -40,6 +40,13 @@ import { isTrackedEvent, type SpoolRecord, type ToolHost, type TrackedEvent } fr
 /** Hard ceiling on the whole process, in case stdin never closes. */
 const WATCHDOG_MS = 2_000;
 
+/**
+ * Ceiling on waiting for the payload to arrive on stdin. Below the watchdog on
+ * purpose: the read gives up first, so a slow writer still leaves us time to
+ * write whatever did arrive instead of being killed mid-append.
+ */
+const STDIN_DEADLINE_MS = 1_500;
+
 /** Fail-safe cap on excerpt length regardless of config. */
 const MAX_EXCERPT = 200;
 
@@ -58,8 +65,8 @@ const CURSOR_EVENT_MAP: Record<string, TrackedEvent> = {
   postToolUse: 'PostToolUse',
 };
 
-function main(): void {
-  const raw = readPayload();
+async function main(): Promise<void> {
+  const raw = await readPayload();
   if (raw === null) return;
 
   let payload: Record<string, unknown>;
@@ -108,12 +115,10 @@ function resolveEventType(raw: unknown): TrackedEvent | null {
  *
  * Claude Code and Cursor on Unix pass JSON on stdin. Cursor Agent on Windows
  * writes a temp cursor-hooks payload.json and runs Get-Content piped through
- * $input, which does not deliver bytes to Node's fd 0, and a blocking stdin
- * read would eat the whole 2s watchdog before we ever look at the temp file.
- * Prefer --payload, then the Windows Cursor temp-file path when CURSOR_VERSION
- * is set, then stdin.
+ * $input, which does not deliver bytes to Node's fd 0. Prefer --payload, then
+ * the Windows Cursor temp-file path when CURSOR_VERSION is set, then stdin.
  */
-function readPayload(): string | null {
+async function readPayload(): Promise<string | null> {
   const flag = process.argv.indexOf('--payload');
   if (flag >= 0) {
     const file = process.argv[flag + 1];
@@ -128,15 +133,22 @@ function readPayload(): string | null {
   }
 
   // Cursor Agent sets CURSOR_VERSION on the hook process. On Windows its
-  // stdin transport is broken, so skip the blocking read entirely.
+  // stdin transport is broken, so skip the read entirely.
   if (process.platform === 'win32' && process.env['CURSOR_VERSION']) {
     return readWindowsCursorTempPayload();
   }
 
-  const fromStdin = readStdin();
+  const fromStdin = await readStdin(STDIN_DEADLINE_MS);
   if (fromStdin !== null) return fromStdin;
 
-  if (process.platform === 'win32') return readWindowsCursorTempPayload();
+  // Last resort for a Cursor build that did not set CURSOR_VERSION. It used to
+  // run under Claude Code too, where it can only ever fail: Claude writes no
+  // cursor-hooks file, and the PowerShell parent lookup below costs the better
+  // part of a second before saying so. That second came out of the user's
+  // prompt latency. CLAUDE_PROJECT_DIR is how we know not to bother.
+  if (process.platform === 'win32' && process.env['CLAUDE_PROJECT_DIR'] === undefined) {
+    return readWindowsCursorTempPayload();
+  }
   return null;
 }
 
@@ -207,23 +219,56 @@ function payloadPathFromParentCommandLine(): string | null {
 }
 
 /**
- * Reads the hook payload from stdin.
+ * Reads the hook payload from stdin, under a deadline of its own.
  *
- * The synchronous read is the fast path and covers the normal case. Windows
- * pipes can surface EAGAIN on a not-yet-ready fd, so a bounded retry follows;
- * giving up quietly is preferable to blocking the session.
+ * This was `readFileSync(0)`, which blocks until the writer closes the pipe.
+ * When the host was slow to close it, the hook sat there holding up the user's
+ * prompt, and the watchdog could not help — it is a timer, and a timer never
+ * preempts synchronous code. A 5s host timeout was hit exactly that way, with
+ * the payload itself perfectly intact.
+ *
+ * Reading through the stream leaves the event loop free, so the deadline
+ * actually fires. Whatever arrived by then is used; nothing means we give up
+ * and the event is lost. Rule 2 beats rule 3 here: a dropped line costs one
+ * block boundary, a stalled hook costs every keystroke behind it.
  */
-function readStdin(): string | null {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const data = readFileSync(0, 'utf8');
-      return data.length > 0 ? data : null;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EAGAIN') return null;
-    }
-  }
-  return null;
+function readStdin(deadlineMs: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const chunks: Buffer[] = [];
+    let settled = false;
+
+    const settle = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stdin.off('data', onData);
+      stdin.off('end', onEnd);
+      stdin.off('error', onError);
+      stdin.pause();
+      resolve(value);
+    };
+
+    const onData = (chunk: Buffer): void => {
+      chunks.push(chunk);
+    };
+
+    // Firing this on the deadline uses the partial read rather than throwing it
+    // away: a truncated payload fails JSON.parse and is dropped upstream, and a
+    // complete one that simply had no EOF yet is still worth recording.
+    const onEnd = (): void => {
+      const data = Buffer.concat(chunks).toString('utf8');
+      settle(data.length > 0 ? data : null);
+    };
+
+    const onError = (): void => settle(null);
+
+    const timer = setTimeout(onEnd, deadlineMs);
+
+    stdin.on('data', onData);
+    stdin.on('end', onEnd);
+    stdin.on('error', onError);
+  });
 }
 
 function buildRecord(
@@ -438,13 +483,14 @@ function triggerBackgroundSync(): void {
   }
 }
 
+// Unref'd so it never holds the process open on its own, but it still fires
+// while stdin keeps the loop alive. It is only a real ceiling now that main()
+// is async; against the old synchronous read it could never have run.
 const watchdog = setTimeout(() => process.exit(0), WATCHDOG_MS);
 watchdog.unref();
 
-try {
-  main();
-} catch {
-  /* never surface anything to the session */
-}
-
-process.exit(0);
+void main()
+  .catch(() => {
+    /* never surface anything to the session */
+  })
+  .finally(() => process.exit(0));
