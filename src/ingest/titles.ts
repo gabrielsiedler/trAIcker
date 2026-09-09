@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -11,6 +11,11 @@ export interface TitleBackfillResult {
   promptsEnriched: number;
   /** Local days whose topics changed and therefore need re-aggregating. */
   affectedDays: string[];
+}
+
+/** Resume position for one session's transcript scan. */
+interface TitleCursorRow {
+  byte_offset: number;
 }
 
 /** Prompt label length. Enough to tell two topics apart, not a transcript. */
@@ -158,8 +163,21 @@ export function subagentLiveness(): Map<string, number> {
  *
  * Titles are generated a little after a session starts, so this runs on every
  * sync rather than once at ingestion: a session ingested mid-flight gets its
- * title on a later pass. Only sessions still missing one are examined, so the
- * cost is bounded by how many sessions are currently untitled.
+ * title on a later pass.
+ *
+ * Only sessions still missing a title or a prompt excerpt are examined, which
+ * used to be described here as bounding the cost. It does not: that set never
+ * shrinks. A session whose excerpt never arrives stays in it for good, so the
+ * scan grew with history rather than with live work, and every pass re-read
+ * and re-parsed all of those transcripts in full to find nothing. Measured
+ * before the fix: 529 sessions, 617 MB per pass, 2.8s of a 3.0s sync, twice a
+ * minute inside the Electron main process.
+ *
+ * `title_cursor` is what actually bounds it. Each session resumes at the byte
+ * it stopped on, so a transcript that has not grown is never opened, and the
+ * work is proportional to what was appended since the last pass. `ai-title` is
+ * re-emitted every turn, so a title that shows up later is still found in the
+ * appended bytes alone.
  */
 export function backfillTitles(db: Db): TitleBackfillResult {
   const result: TitleBackfillResult = {
@@ -186,6 +204,13 @@ export function backfillTitles(db: Db): TitleBackfillResult {
   const index = buildTranscriptIndex(root);
   const affected = new Set<string>();
 
+  const readCursor = db.prepare('SELECT byte_offset FROM title_cursor WHERE session_id = ?');
+  const writeCursor = db.prepare(
+    `INSERT INTO title_cursor (session_id, byte_offset, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET byte_offset = excluded.byte_offset, updated_at = excluded.updated_at`,
+  );
+
   const daysFor = db.prepare(
     `SELECT DISTINCT strftime('%Y-%m-%d', ts_utc, (tz_offset_min || ' minutes')) AS day
      FROM events WHERE session_id = ?`,
@@ -195,14 +220,44 @@ export function backfillTitles(db: Db): TitleBackfillResult {
     'UPDATE events SET prompt_excerpt = ? WHERE session_id = ? AND prompt_id = ? AND prompt_excerpt IS NULL',
   );
 
+  const scannedAt = new Date().toISOString();
+
   db.transaction(() => {
     for (const { session_id } of pending) {
-      result.sessionsChecked++;
-
       const file = index.get(session_id);
       if (!file) continue;
 
-      const { title, prompts } = readTranscript(file);
+      let size: number;
+      try {
+        size = statSync(file).size;
+      } catch {
+        continue;
+      }
+
+      // A file that shrank was rotated or replaced; restart it. Re-reading is
+      // harmless, since every write below is guarded by `IS NULL`.
+      const cursor = readCursor.get(session_id) as TitleCursorRow | undefined;
+      const startOffset = cursor && cursor.byte_offset <= size ? cursor.byte_offset : 0;
+      // Nothing appended since the last pass. This is the branch that turns a
+      // scan over all of history into a scan over the last minute of work.
+      if (size === startOffset) continue;
+
+      result.sessionsChecked++;
+
+      let chunk: string;
+      try {
+        chunk = readRange(file, startOffset, size);
+      } catch {
+        continue;
+      }
+
+      // Stop at the last complete line and resume from there, so a line still
+      // being written is read whole on the next pass rather than half now.
+      const lastNewline = chunk.lastIndexOf('\n');
+      if (lastNewline === -1) continue;
+      const complete = chunk.slice(0, lastNewline);
+
+      const { title, prompts } = parseTranscript(complete);
       let touched = false;
 
       if (title !== null) {
@@ -227,6 +282,9 @@ export function backfillTitles(db: Db): TitleBackfillResult {
           if (row.day) affected.add(row.day);
         }
       }
+
+      // The +1 is the newline that `complete` was cut on.
+      writeCursor.run(session_id, startOffset + Buffer.byteLength(complete, 'utf8') + 1, scannedAt);
     }
   })();
 
@@ -287,16 +345,37 @@ interface TranscriptData {
   prompts: Map<string, string>;
 }
 
-/** Reads a transcript once, extracting both the title and the prompt labels. */
-function readTranscript(file: string): TranscriptData {
-  const data: TranscriptData = { title: null, prompts: new Map() };
-
-  let content: string;
+/**
+ * Reads only `[start, end)` of a file, decoded as UTF-8.
+ *
+ * `start` is always a byte offset just past a `\n` written by an earlier pass
+ * (or 0), and `\n` is a single ASCII byte that never appears as a UTF-8
+ * continuation byte, so this always lands on a code-point boundary: safe to
+ * decode without stitching it back onto the bytes before it.
+ *
+ * Lives here rather than in usage.ts because both transcript scans now resume
+ * from a cursor and the direction of the existing dependency is usage -> titles.
+ */
+export function readRange(file: string, start: number, end: number): string {
+  const fd = openSync(file, 'r');
   try {
-    content = readFileSync(file, 'utf8');
-  } catch {
-    return data;
+    const length = end - start;
+    const buf = Buffer.alloc(length);
+    readSync(fd, buf, 0, length, start);
+    return buf.toString('utf8');
+  } finally {
+    closeSync(fd);
   }
+}
+
+/**
+ * Extracts the title and the prompt labels from a run of transcript lines.
+ *
+ * Takes text rather than a path because the caller only ever holds the bytes
+ * appended since its cursor, never the whole file.
+ */
+function parseTranscript(content: string): TranscriptData {
+  const data: TranscriptData = { title: null, prompts: new Map() };
 
   for (const line of content.split('\n')) {
     // Cheap pre-filter: parsing every line of a multi-megabyte transcript would

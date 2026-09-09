@@ -364,6 +364,29 @@ ALTER TABLE spans ADD COLUMN host TEXT NOT NULL DEFAULT 'claude';
 CREATE INDEX idx_spans_host ON spans (local_day, host, project_id);
 `;
 
+const M017_TITLE_CURSOR = /* sql */ `
+-- Resumable read position for the title/prompt backfill, same shape as
+-- usage_cursor but its own row per session: the two scans consume the same
+-- files at different rates and must not share an offset.
+--
+-- Without it, backfillTitles re-read every transcript belonging to a session
+-- still missing a title or a prompt excerpt, on every sync pass. Those
+-- sessions never leave the pending set (a prompt whose excerpt never appears
+-- keeps it there forever), so the work never shrank: measured at 617 MB read
+-- and parsed per pass, ~2.8s of a ~3.0s sync, twice a minute. Same defect
+-- usage_cursor was introduced to fix, one scan later. See context/decisoes.md,
+-- 2026-09-09.
+--
+-- Keyed by session_id, not by file: this scan only ever reads a session's own
+-- transcript. Subagent files carry the parent's id and hold no ai-title of
+-- their own, so unlike usage they are not walked here.
+CREATE TABLE title_cursor (
+  session_id  TEXT PRIMARY KEY,
+  byte_offset INTEGER NOT NULL,
+  updated_at  TEXT    NOT NULL
+);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'init', sql: M001_INIT },
   { version: 2, name: 'occupancy', sql: M002_OCCUPANCY },
@@ -381,6 +404,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 14, name: 'excluded_spans', sql: M014_EXCLUDED_SPANS },
   { version: 15, name: 'excluded_spans_bucket', sql: M015_EXCLUDED_SPANS_BUCKET },
   { version: 16, name: 'host', sql: M016_HOST },
+  { version: 17, name: 'title_cursor', sql: M017_TITLE_CURSOR },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
