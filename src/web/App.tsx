@@ -192,10 +192,44 @@ export function App() {
     }
   }, [rangeMode, customFrom, customTo, scope]);
 
+  /**
+   * The poll runs only while the window is on screen.
+   *
+   * Closing the dashboard hides it rather than quitting, because a tray app's
+   * close button means "get out of my way". So without this the renderer kept
+   * refetching every minute for a window nobody was looking at, and each of
+   * those requests made the server sync on read.
+   *
+   * Coming back refetches at once, which also fixes a smaller annoyance: the
+   * first thing you saw on reopening used to be up to a minute stale.
+   */
   useEffect(() => {
+    let timer: number | undefined;
+
+    const start = (): void => {
+      if (timer === undefined) timer = window.setInterval(() => void load(true), REFRESH_MS);
+    };
+    const stop = (): void => {
+      if (timer !== undefined) window.clearInterval(timer);
+      timer = undefined;
+    };
+    const onVisibility = (): void => {
+      if (document.hidden) {
+        stop();
+        return;
+      }
+      void load(true);
+      start();
+    };
+
     void load();
-    const timer = setInterval(() => void load(true), REFRESH_MS);
-    return () => clearInterval(timer);
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [load]);
 
   // What the view on screen actually listens to. Falls back to "listens to

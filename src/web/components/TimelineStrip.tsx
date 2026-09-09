@@ -228,9 +228,36 @@ export function TimelineStrip({ spans, filter, days, hostCosts = [], onChanged }
     }
   };
 
+  // Paused while the window is hidden: a now-line nobody can see does not need
+  // to move, and the re-render it triggers is not free. Catches up on return so
+  // the line is never drawn in the wrong place.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
-    return () => clearInterval(timer);
+    let timer: number | undefined;
+
+    const tick = (): void => setNow(Date.now());
+    const start = (): void => {
+      if (timer === undefined) timer = window.setInterval(tick, NOW_TICK_MS);
+    };
+    const stop = (): void => {
+      if (timer !== undefined) window.clearInterval(timer);
+      timer = undefined;
+    };
+    const onVisibility = (): void => {
+      if (document.hidden) {
+        stop();
+        return;
+      }
+      tick();
+      start();
+    };
+
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const model = useMemo(() => {
