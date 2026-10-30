@@ -107,7 +107,6 @@ export async function lookupModelPricing(config: TraickerConfig, model: string):
       routeToStructuredOutput({
         model: config.translationModel,
         max_tokens: MAX_TOKENS,
-        temperature: 0,
         // OpenRouter's web-search plugin, layered on top of whatever model is
         // configured — not part of the OpenAI SDK's types, same as `provider`
         // and `reasoning` in `routeToStructuredOutput`.

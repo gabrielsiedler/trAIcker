@@ -102,7 +102,10 @@ with a payment credential. Get a key at <https://openrouter.ai/keys>.
 `translationModel` takes an OpenRouter slug (provider-prefixed) that supports
 [structured outputs](https://openrouter.ai/models?supported_parameters=structured_outputs).
 The request pins `require_parameters`, so it's never routed to a provider that
-would ignore the schema and answer in prose. The default,
+would ignore the schema and answer in prose. That pin makes every parameter a
+hard filter, so no call sends `temperature`: reasoning models like
+`openai/gpt-6-luna` or `anthropic/claude-haiku-5.5` don't take it, and with it
+OpenRouter finds no provider at all and answers 404. The default,
 `deepseek/deepseek-v4-flash-0731`, costs about $0.08 per million input tokens.
 `anthropic/claude-opus-5` is roughly 60× that. `llmBaseUrl` moves the endpoint,
 but change the key with it, since the two travel together.

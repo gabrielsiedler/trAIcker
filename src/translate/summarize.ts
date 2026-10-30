@@ -145,10 +145,6 @@ export async function summarizeDay(
       routeToStructuredOutput({
         model: config.translationModel,
         max_tokens: MAX_TOKENS,
-        // A billing line must not reword itself on a re-run. The result is stored
-        // either way, but a redo you asked for should differ because the day
-        // changed, not because of sampling.
-        temperature: 0,
         response_format: {
           type: 'json_schema',
           json_schema: {

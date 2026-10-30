@@ -149,10 +149,6 @@ async function translateBatch(
     routeToStructuredOutput({
       model,
       max_tokens: MAX_TOKENS,
-      // Deterministic wording matters more here than variety: the cache is keyed
-      // by source string, and a label re-translated after a cache clear should
-      // come back reading the same way.
-      temperature: 0,
       response_format: {
         type: 'json_schema',
         json_schema: {

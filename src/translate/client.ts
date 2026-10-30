@@ -61,6 +61,13 @@ export class MissingCredentials extends Error {
  * `reasoning: { effort: 'none' }` is OpenRouter's own documented switch and
  * fully skips reasoning tokens on models where reasoning is optional.
  *
+ * The flip side of `require_parameters` is that every parameter sent becomes a
+ * hard filter on providers. That is why no call sets `temperature`: reasoning
+ * models (GPT-6 Luna, Claude Haiku 5.5) do not accept it, so `temperature: 0`
+ * left them with no endpoint at all and OpenRouter answered 404. Re-runs are
+ * no longer guaranteed to word things identically; the stored result and the
+ * translation cache are what keep a line stable.
+ *
  * `provider` and `reasoning` are OpenRouter extensions the OpenAI types do
  * not model, so the cast lives here — once, named — rather than at each call
  * site.
@@ -91,7 +98,10 @@ export function describeApiError(error: unknown): string {
     return 'OpenRouter refused this model — the key may lack credit or access to it.';
   }
   if (error instanceof OpenAI.NotFoundError) {
-    return 'OpenRouter does not know that model. Check translationModel against https://openrouter.ai/models.';
+    // OpenRouter also answers 404 when the model exists but no provider takes
+    // every parameter sent (see `require_parameters` above), so a fixed "unknown
+    // model" line would point at the wrong thing. Pass its own reason through.
+    return `OpenRouter found no endpoint for that model: ${error.message}. Check translationModel against https://openrouter.ai/models.`;
   }
   if (error instanceof OpenAI.RateLimitError) return 'rate limited by OpenRouter';
   if (error instanceof OpenAI.APIConnectionError) return 'could not reach OpenRouter';
